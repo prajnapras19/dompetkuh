@@ -53,6 +53,29 @@ final budgetSpentInMonthProvider =
           .watchSingle();
     });
 
+/// The monthly allocation that actually applies to [month] — the amount
+/// from the most recent BudgetAmounts row whose effectiveFrom is <= month.
+/// Null if the budget had no amount set yet as of that month (e.g. paging
+/// back to before the budget existed). [month] should have day=1.
+final budgetAmountForMonthProvider =
+    StreamProvider.family<int?, ({int budgetId, DateTime month})>((
+      ref,
+      args,
+    ) {
+      final db = ref.watch(databaseProvider);
+      final month = DateTime(args.month.year, args.month.month);
+
+      final query = db.select(db.budgetAmounts)
+        ..where(
+          (a) =>
+              a.budgetId.equals(args.budgetId) &
+              a.effectiveFrom.isSmallerOrEqualValue(month),
+        )
+        ..orderBy([(a) => OrderingTerm.desc(a.effectiveFrom)])
+        ..limit(1);
+      return query.watchSingleOrNull().map((row) => row?.amount);
+    });
+
 class BudgetRepository {
   BudgetRepository(this._db);
   final AppDatabase _db;
@@ -63,6 +86,42 @@ class BudgetRepository {
 
   Future<bool> update(Budget budget) {
     return _db.update(_db.budgets).replace(budget);
+  }
+
+  /// Sets the monthly amount effective from [month] onward — inserts a new
+  /// BudgetAmounts row (or updates one already effective from that exact
+  /// month, e.g. editing twice in the same month) rather than overwriting
+  /// history, so earlier months keep whatever was in effect at the time.
+  Future<void> setAmountEffectiveFrom(
+    int budgetId,
+    DateTime month,
+    int amount,
+  ) async {
+    final normalized = DateTime(month.year, month.month);
+    final existing =
+        await (_db.select(_db.budgetAmounts)..where(
+              (a) =>
+                  a.budgetId.equals(budgetId) &
+                  a.effectiveFrom.equals(normalized),
+            ))
+            .getSingleOrNull();
+    if (existing != null) {
+      await (_db.update(
+        _db.budgetAmounts,
+      )..where((a) => a.id.equals(existing.id))).write(
+        BudgetAmountsCompanion(amount: Value(amount)),
+      );
+    } else {
+      await _db
+          .into(_db.budgetAmounts)
+          .insert(
+            BudgetAmountsCompanion.insert(
+              budgetId: budgetId,
+              effectiveFrom: normalized,
+              amount: amount,
+            ),
+          );
+    }
   }
 
   Future<bool> isInUse(int budgetId) async {
@@ -84,8 +143,11 @@ class BudgetRepository {
         .write(const BudgetsCompanion(archivedAt: Value(null)));
   }
 
-  Future<void> delete(int budgetId) {
-    return (_db.delete(_db.budgets)..where((b) => b.id.equals(budgetId))).go();
+  Future<void> delete(int budgetId) async {
+    await (_db.delete(
+      _db.budgetAmounts,
+    )..where((a) => a.budgetId.equals(budgetId))).go();
+    await (_db.delete(_db.budgets)..where((b) => b.id.equals(budgetId))).go();
   }
 }
 

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../db/database.dart';
 import '../../providers/budget_providers.dart';
@@ -11,6 +12,13 @@ import '../../widgets/form_helpers.dart';
 import '../../widgets/icon_picker_field.dart';
 
 /// Create or edit a budget tag. [budget] null = create.
+///
+/// The monthly amount is effective-dated (see BudgetAmounts): saving here
+/// always sets the amount starting from the *current* month onward — it
+/// never rewrites what earlier months show. Editing "September's amount"
+/// specifically (rather than "from now on") isn't exposed in the UI; the
+/// current month is the only one editable, matching the reference app's
+/// lack of a past-editing concept.
 class BudgetFormScreen extends ConsumerStatefulWidget {
   final Budget? budget;
 
@@ -28,6 +36,9 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
   int? _colorValue;
   int? _currencyId;
   bool _saving = false;
+  bool _amountPrefilled = false;
+
+  static final _thisMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
   bool get _isEditing => widget.budget != null;
 
@@ -52,6 +63,14 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
   @override
   Widget build(BuildContext context) {
     final currenciesAsync = ref.watch(allCurrenciesProvider);
+    final currentAmountAsync = _isEditing
+        ? ref.watch(
+            budgetAmountForMonthProvider((
+              budgetId: widget.budget!.id,
+              month: _thisMonth,
+            )),
+          )
+        : null;
 
     return Scaffold(
       appBar: AppBar(title: Text(_isEditing ? 'Edit Budget' : 'Add Budget')),
@@ -72,11 +91,16 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
             orElse: () => currencies.first,
           );
 
-          if (_amountController.text.isEmpty && widget.budget != null) {
-            _amountController.text = Money.formatEditable(
-              widget.budget!.monthlyAmount,
-              currency,
-            );
+          if (!_amountPrefilled && currentAmountAsync != null) {
+            currentAmountAsync.whenData((amount) {
+              if (!_amountPrefilled) {
+                _amountPrefilled = true;
+                _amountController.text = Money.formatEditable(
+                  amount ?? 0,
+                  currency,
+                );
+              }
+            });
           }
 
           return Form(
@@ -124,13 +148,24 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
                   }),
                 ),
                 const SizedBox(height: 16),
-                const FormCaption('MONTHLY AMOUNT'),
+                FormCaption(
+                  'MONTHLY AMOUNT (from ${DateFormat('MMMM yyyy').format(_thisMonth)})',
+                ),
                 if (currency.decimalPlaces > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
                       amountDecimalHint(currency),
                       style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                if (_isEditing)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      "This changes the amount going forward — earlier "
+                      "months keep showing whatever was set at the time.",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ),
                 TextFormField(
@@ -172,27 +207,28 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
     setState(() => _saving = true);
     final repo = ref.read(budgetRepositoryProvider);
 
+    int budgetId;
     if (_isEditing) {
+      budgetId = widget.budget!.id;
       await repo.update(
         widget.budget!.copyWith(
           name: _nameController.text.trim(),
           icon: Value(_iconKey),
           color: Value(_colorValue),
           currencyId: Value(_currencyId),
-          monthlyAmount: amount,
         ),
       );
     } else {
-      await repo.create(
+      budgetId = await repo.create(
         BudgetsCompanion.insert(
           name: _nameController.text.trim(),
           icon: Value(_iconKey),
           color: Value(_colorValue),
           currencyId: Value(_currencyId),
-          monthlyAmount: Value(amount),
         ),
       );
     }
+    await repo.setAmountEffectiveFrom(budgetId, _thisMonth, amount);
 
     if (mounted) Navigator.of(context).pop();
   }

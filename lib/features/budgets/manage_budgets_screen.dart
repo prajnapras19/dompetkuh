@@ -104,6 +104,9 @@ class _BudgetRow extends ConsumerWidget {
     final spentAsync = ref.watch(
       budgetSpentInMonthProvider((budgetId: budget.id, month: month)),
     );
+    final amountAsync = ref.watch(
+      budgetAmountForMonthProvider((budgetId: budget.id, month: month)),
+    );
 
     return ListTile(
       leading: IconTile(iconKey: budget.icon, colorValue: budget.color),
@@ -121,26 +124,41 @@ class _BudgetRow extends ConsumerWidget {
         error: (_, _) => null,
         data: (currency) {
           if (currency == null) return null;
-          return spentAsync.when(
+          return amountAsync.when(
             loading: () => const Text('…'),
             error: (_, _) => null,
-            data: (spent) {
-              final remaining = budget.monthlyAmount - spent;
-              // A Row here reliably overflowed on-device once amounts got
-              // long — two short lines wrap safely instead.
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${Money.formatDisplay(spent, currency)} of '
-                    '${Money.formatDisplay(budget.monthlyAmount, currency)}',
-                  ),
-                  Text(
-                    'Remaining: ${Money.formatDisplay(remaining, currency)}',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
+            data: (monthlyAmount) {
+              if (monthlyAmount == null) {
+                return const Text(
+                  'No amount set for this month',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                );
+              }
+              return spentAsync.when(
+                loading: () => const Text('…'),
+                error: (_, _) => null,
+                data: (spent) {
+                  final remaining = monthlyAmount - spent;
+                  // A Row here reliably overflowed on-device once amounts
+                  // got long — two short lines wrap safely instead.
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${Money.formatDisplay(spent, currency)} of '
+                        '${Money.formatDisplay(monthlyAmount, currency)}',
+                      ),
+                      Text(
+                        'Remaining: ${Money.formatDisplay(remaining, currency)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               );
             },
           );
