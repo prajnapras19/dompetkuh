@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db/database.dart';
+import '../models/global_transaction_entry.dart';
 import '../models/transaction_entry.dart';
 import 'database_provider.dart';
 
@@ -25,6 +26,52 @@ final transactionsForAccountProvider =
               (row) => TransactionEntry(
                 transaction: row.readTable(db.transactions),
                 category: row.readTable(db.categories),
+              ),
+            )
+            .toList(),
+      );
+    });
+
+/// All transactions across every account within one calendar month, newest
+/// first, joined with category + account + currency — feeds the home
+/// Transactions tab. [month] should have day=1 (year/month only matter).
+final transactionsInMonthProvider =
+    StreamProvider.family<List<GlobalTransactionEntry>, DateTime>((
+      ref,
+      month,
+    ) {
+      final db = ref.watch(databaseProvider);
+      final start = DateTime(month.year, month.month);
+      final end = DateTime(month.year, month.month + 1);
+
+      final query = db.select(db.transactions).join([
+        innerJoin(
+          db.categories,
+          db.categories.id.equalsExp(db.transactions.categoryId),
+        ),
+        innerJoin(
+          db.accounts,
+          db.accounts.id.equalsExp(db.transactions.accountId),
+        ),
+        innerJoin(
+          db.currencies,
+          db.currencies.id.equalsExp(db.accounts.currencyId),
+        ),
+      ])
+        ..where(
+          db.transactions.date.isBiggerOrEqualValue(start) &
+              db.transactions.date.isSmallerThanValue(end),
+        )
+        ..orderBy([OrderingTerm.desc(db.transactions.date)]);
+
+      return query.watch().map(
+        (rows) => rows
+            .map(
+              (row) => GlobalTransactionEntry(
+                transaction: row.readTable(db.transactions),
+                category: row.readTable(db.categories),
+                account: row.readTable(db.accounts),
+                currency: row.readTable(db.currencies),
               ),
             )
             .toList(),
