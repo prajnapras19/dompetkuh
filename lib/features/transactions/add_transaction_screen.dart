@@ -105,13 +105,22 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
           return Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              // Extra bottom padding so the last button (DELETE, in edit
+              // mode) isn't covered by the gesture-nav bar on devices
+              // without a dedicated nav bar area.
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                16 + MediaQuery.of(context).padding.bottom,
+              ),
               children: [
                 _TypeToggle(
                   type: _type,
                   onChanged: (t) => setState(() {
                     _type = t;
                     _categoryId = null;
+                    _budgetId = null;
                   }),
                 ),
                 const SizedBox(height: 20),
@@ -174,56 +183,64 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
-                const FormCaption('BUDGET (OPTIONAL)'),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final budgetsAsync = ref.watch(activeBudgetsProvider);
-                    return budgetsAsync.when(
-                      loading: () => const LinearProgressIndicator(),
-                      error: (e, _) => Text('Error: $e'),
-                      data: (allBudgets) {
-                        // Only budgets in this account's currency — a
-                        // budget's "spent" total only stays meaningful if
-                        // every tagged transaction shares its currency.
-                        final budgets = allBudgets
-                            .where(
-                              (b) => b.currencyId == selectedAccount.currency.id,
-                            )
-                            .toList();
-                        if (budgets.isEmpty) {
-                          return Text(
-                            'No ${selectedAccount.currency.code} budgets yet — '
-                            'add one in the Budgets tab to tag transactions.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
+                // Budgets are an expense-tracking concept (spent-vs-
+                // allocated) — the field only makes sense for Expense.
+                if (_type == CategoryType.out) ...[
+                  const SizedBox(height: 16),
+                  const FormCaption('BUDGET (OPTIONAL)'),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final budgetsAsync = ref.watch(activeBudgetsProvider);
+                      return budgetsAsync.when(
+                        loading: () => const LinearProgressIndicator(),
+                        error: (e, _) => Text('Error: $e'),
+                        data: (allBudgets) {
+                          // Only budgets in this account's currency — a
+                          // budget's "spent" total only stays meaningful if
+                          // every tagged transaction shares its currency.
+                          final budgets = allBudgets
+                              .where(
+                                (b) =>
+                                    b.currencyId == selectedAccount.currency.id,
+                              )
+                              .toList();
+                          if (budgets.isEmpty) {
+                            return Text(
+                              'No ${selectedAccount.currency.code} budgets yet — '
+                              'add one in the Budgets tab to tag transactions.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            );
+                          }
+                          final valid = budgets.any((b) => b.id == _budgetId);
+                          return DropdownButtonFormField<int?>(
+                            // DropdownButtonFormField owns `value` internally
+                            // after first build and won't re-read
+                            // initialValue on its own — keying on the account
+                            // forces a fresh instance (and fresh initialValue)
+                            // whenever the currency-filtered item list changes.
+                            key: ValueKey(_accountId),
+                            initialValue: valid ? _budgetId : null,
+                            items: [
+                              const DropdownMenuItem(
+                                value: null,
+                                child: Text('None'),
+                              ),
+                              for (final b in budgets)
+                                DropdownMenuItem(
+                                  value: b.id,
+                                  child: Text(b.name),
+                                ),
+                            ],
+                            onChanged: (v) => setState(() => _budgetId = v),
                           );
-                        }
-                        final valid = budgets.any((b) => b.id == _budgetId);
-                        return DropdownButtonFormField<int?>(
-                          // DropdownButtonFormField owns `value` internally
-                          // after first build and won't re-read
-                          // initialValue on its own — keying on the account
-                          // forces a fresh instance (and fresh initialValue)
-                          // whenever the currency-filtered item list changes.
-                          key: ValueKey(_accountId),
-                          initialValue: valid ? _budgetId : null,
-                          items: [
-                            const DropdownMenuItem(
-                              value: null,
-                              child: Text('None'),
-                            ),
-                            for (final b in budgets)
-                              DropdownMenuItem(value: b.id, child: Text(b.name)),
-                          ],
-                          onChanged: (v) => setState(() => _budgetId = v),
-                        );
-                      },
-                    );
-                  },
-                ),
+                        },
+                      );
+                    },
+                  ),
+                ],
                 const SizedBox(height: 16),
                 FormCaption('AMOUNT'),
                 if (selectedAccount.currency.decimalPlaces > 0)
