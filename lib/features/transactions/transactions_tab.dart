@@ -8,6 +8,7 @@ import '../../models/ledger_entry.dart';
 import '../../providers/account_providers.dart';
 import '../../providers/budget_providers.dart';
 import '../../providers/category_providers.dart';
+import '../../providers/currency_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../providers/transfer_providers.dart';
 import '../../widgets/icon_tile.dart';
@@ -25,6 +26,7 @@ class TransactionsTab extends ConsumerStatefulWidget {
   final int? initialAccountId;
   final int? initialCategoryId;
   final int? initialBudgetId;
+  final int? initialCurrencyId;
 
   const TransactionsTab({
     super.key,
@@ -32,6 +34,7 @@ class TransactionsTab extends ConsumerStatefulWidget {
     this.initialAccountId,
     this.initialCategoryId,
     this.initialBudgetId,
+    this.initialCurrencyId,
   });
 
   @override
@@ -45,9 +48,13 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
   late int? _accountId = widget.initialAccountId;
   late int? _categoryId = widget.initialCategoryId;
   late int? _budgetId = widget.initialBudgetId;
+  late int? _currencyId = widget.initialCurrencyId;
 
   bool get _hasFilter =>
-      _accountId != null || _categoryId != null || _budgetId != null;
+      _accountId != null ||
+      _categoryId != null ||
+      _budgetId != null ||
+      _currencyId != null;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +63,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
       accountId: _accountId,
       categoryId: _categoryId,
       budgetId: _budgetId,
+      currencyId: _currencyId,
     );
     final entriesAsync = ref.watch(globalLedgerInMonthProvider(filter));
 
@@ -87,6 +95,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
                     _accountId = null;
                     _categoryId = null;
                     _budgetId = null;
+                    _currencyId = null;
                   }),
                   icon: const Icon(Icons.close, size: 16),
                   label: const Text('Clear filter'),
@@ -147,6 +156,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
         accountId: _accountId,
         categoryId: _categoryId,
         budgetId: _budgetId,
+        currencyId: _currencyId,
       ),
     );
     if (result != null) {
@@ -154,19 +164,31 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
         _accountId = result.accountId;
         _categoryId = result.categoryId;
         _budgetId = result.budgetId;
+        _currencyId = result.currencyId;
       });
     }
   }
 }
 
-typedef _FilterResult = ({int? accountId, int? categoryId, int? budgetId});
+typedef _FilterResult = ({
+  int? accountId,
+  int? categoryId,
+  int? budgetId,
+  int? currencyId,
+});
 
 class _FilterSheet extends ConsumerStatefulWidget {
   final int? accountId;
   final int? categoryId;
   final int? budgetId;
+  final int? currencyId;
 
-  const _FilterSheet({this.accountId, this.categoryId, this.budgetId});
+  const _FilterSheet({
+    this.accountId,
+    this.categoryId,
+    this.budgetId,
+    this.currencyId,
+  });
 
   @override
   ConsumerState<_FilterSheet> createState() => _FilterSheetState();
@@ -176,6 +198,7 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
   late int? _accountId = widget.accountId;
   late int? _categoryId = widget.categoryId;
   late int? _budgetId = widget.budgetId;
+  late int? _currencyId = widget.currencyId;
 
   @override
   Widget build(BuildContext context) {
@@ -183,6 +206,7 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
     final categoriesInAsync = ref.watch(categoriesByTypeProvider('in'));
     final categoriesOutAsync = ref.watch(categoriesByTypeProvider('out'));
     final budgetsAsync = ref.watch(activeBudgetsProvider);
+    final currenciesAsync = ref.watch(activeCurrenciesProvider);
 
     return SafeArea(
       child: Padding(
@@ -245,6 +269,24 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
               ),
             ),
             const SizedBox(height: 16),
+            const Text('CURRENCY', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            currenciesAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (currencies) => DropdownButtonFormField<int?>(
+                initialValue: _currencyId,
+                items: [
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('All currencies'),
+                  ),
+                  for (final c in currencies)
+                    DropdownMenuItem(value: c.id, child: Text(c.code)),
+                ],
+                onChanged: (v) => setState(() => _currencyId = v),
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text('BUDGET', style: TextStyle(fontSize: 11, color: Colors.grey)),
             budgetsAsync.when(
               loading: () => const LinearProgressIndicator(),
@@ -271,6 +313,7 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
                       accountId: null,
                       categoryId: null,
                       budgetId: null,
+                      currencyId: null,
                     )),
                     child: const Text('CLEAR'),
                   ),
@@ -282,6 +325,7 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
                       accountId: _accountId,
                       categoryId: _categoryId,
                       budgetId: _budgetId,
+                      currencyId: _currencyId,
                     )),
                     child: const Text('APPLY'),
                   ),

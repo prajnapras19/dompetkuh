@@ -393,6 +393,7 @@ class _CategoryRow extends StatelessWidget {
             builder: (_) => TransactionsTab(
               initialMonth: period.reference,
               initialCategoryId: entry.category.id,
+              initialCurrencyId: currency.id,
             ),
           ),
         );

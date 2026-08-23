@@ -53,13 +53,14 @@ Currency _readLedgerCurrency(QueryRow row) => Currency(
 );
 
 /// Filters for [globalLedgerInMonthProvider]. categoryId/budgetId exclude
-/// transfers entirely (transfers have neither) — only accountId still
-/// includes transfers, matching either leg.
+/// transfers entirely (transfers have neither) — accountId/currencyId still
+/// include transfers, matching either leg's account/currency.
 typedef LedgerFilter = ({
   DateTime month,
   int? accountId,
   int? categoryId,
   int? budgetId,
+  int? currencyId,
 });
 
 /// All transactions + transfer legs across every account within one
@@ -92,6 +93,10 @@ final globalLedgerInMonthProvider =
         txnWhere.write(' AND t.budget_id = ?');
         variables.add(Variable.withInt(filter.budgetId!));
       }
+      if (filter.currencyId != null) {
+        txnWhere.write(' AND cur.id = ?');
+        variables.add(Variable.withInt(filter.currencyId!));
+      }
 
       sql.write('''
         SELECT 'transaction' AS kind, t.id AS id, t.date AS date, t.type AS sign_type,
@@ -105,7 +110,9 @@ final globalLedgerInMonthProvider =
       ''');
 
       if (includeTransfers) {
-        final accountClause = filter.accountId != null ? ' AND a.id = ?' : '';
+        final transferClause = StringBuffer();
+        if (filter.accountId != null) transferClause.write(' AND a.id = ?');
+        if (filter.currencyId != null) transferClause.write(' AND cur.id = ?');
 
         sql.write('''
           UNION ALL
@@ -116,7 +123,7 @@ final globalLedgerInMonthProvider =
           INNER JOIN accounts a ON a.id = tr.from_account_id
           INNER JOIN accounts dest ON dest.id = tr.to_account_id
           INNER JOIN currencies cur ON cur.id = a.currency_id
-          WHERE tr.date >= ? AND tr.date < ?$accountClause
+          WHERE tr.date >= ? AND tr.date < ?$transferClause
         ''');
         variables.addAll([
           Variable.withDateTime(start),
@@ -124,6 +131,9 @@ final globalLedgerInMonthProvider =
         ]);
         if (filter.accountId != null) {
           variables.add(Variable.withInt(filter.accountId!));
+        }
+        if (filter.currencyId != null) {
+          variables.add(Variable.withInt(filter.currencyId!));
         }
 
         sql.write('''
@@ -135,7 +145,7 @@ final globalLedgerInMonthProvider =
           INNER JOIN accounts a ON a.id = tr.to_account_id
           INNER JOIN accounts src ON src.id = tr.from_account_id
           INNER JOIN currencies cur ON cur.id = a.currency_id
-          WHERE tr.date >= ? AND tr.date < ?$accountClause
+          WHERE tr.date >= ? AND tr.date < ?$transferClause
         ''');
         variables.addAll([
           Variable.withDateTime(start),
@@ -143,6 +153,9 @@ final globalLedgerInMonthProvider =
         ]);
         if (filter.accountId != null) {
           variables.add(Variable.withInt(filter.accountId!));
+        }
+        if (filter.currencyId != null) {
+          variables.add(Variable.withInt(filter.currencyId!));
         }
       }
 
