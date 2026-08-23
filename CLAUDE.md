@@ -36,13 +36,26 @@ fixed default color — see `lib/widgets/icon_catalog.dart` — so picking an
 icon sets icon+color together in one tap), plain (non-card) label/value rows
 for summaries, captioned form fields, pill-shaped buttons.
 
-**Navigation shell** (as of the current iteration — home tab was originally
-Accounts, corrected per repo owner feedback): bottom nav is **Transactions
-(home) / Reports / Settings**, with a **center-docked FAB** (pencil icon,
-matching the reference) for "add transaction" living in the bottom bar
-itself, not per-screen. **Accounts management lives under Settings**, not as
-its own tab — reached via a "Accounts" entry in Settings, same as Currencies
-and Categories.
+**Navigation shell** (home tab was originally Accounts, corrected per repo
+owner feedback): bottom nav is **Transactions (home) / Reports / Budgets /
+Settings** (2+2, split exactly at screen-center via two `Expanded` halves in
+`home_shell.dart` — a fixed-width `SizedBox` spacer does NOT reliably line
+up with where `centerDocked` actually cuts the FAB notch, learned the hard
+way). The **center-docked FAB is a speed-dial** (matches the reference
+app's Tambah Transaksi/Transfer Saldo menu): tapping it opens a small sheet
+with **Add Transaction / Transfer / Add Budget** — this is the *only*
+creation entry point for those three. Per-screen shortcuts (Account
+Detail's FAB, Accounts Overview's transfer icon, Manage Budgets' FAB) were
+deliberately removed once the speed-dial existed, per repo owner feedback
+("eliminate the transfer and add transaction from the accounts menu") —
+**don't re-add a per-screen Add/Transfer button**; route new creation flows
+through the speed-dial instead, or ask first if a screen-specific shortcut
+(e.g. one that preselects something the speed-dial can't) seems genuinely
+warranted. **Accounts management lives under Settings**, not as its own
+tab, and **tapping an account opens Edit directly** — there's no more
+per-account transaction-log screen (Account Detail was deleted); that job
+is now the home Transactions tab filtered to one account (see Budgets
+section below for the filter UI, which also filters by category/budget).
 
 ## Tech stack
 
@@ -95,6 +108,63 @@ strings — always route amount I/O through it, don't hand-roll parsing.
   `.join()` query builder can't easily be combined with a correlated
   subquery expression; use `.join()` + `.readTable()` instead
   (`transaction_providers.dart`) for joins that don't need that.
+
+## Budgets mechanism (easy to forget the shape of — read this before touching it)
+
+Added after Phase 1-4, per repo owner request. **Explicitly not a spending
+limit/alert system** — "no warning or anything, just budgeting" was said
+verbatim. It's two things bolted together:
+
+1. **A tag.** A `Budget` (name, icon/color) can be optionally attached to
+   any in/out `Transaction` via its nullable `budgetId` — completely
+   orthogonal to `categoryId`. **Transfers can never carry a budget tag**
+   (no `budgetId` column on `Transfers` — tagging a transfer wouldn't mean
+   anything sensible since it doesn't represent income/expense).
+2. **A recurring monthly allocation.** Each `Budget` also has exactly
+   **one** `currencyId` (required, like `Accounts` — otherwise summing
+   "spent" across mixed currencies would be meaningless) and a single
+   `monthlyAmount`. This amount **recurs identically every month** — there
+   is no per-month history table. If you edit a budget's monthly amount,
+   the change is retroactive: paging back to a past month in the Budgets
+   tab will show *that* month's spending against the *current* amount, not
+   whatever it was when that month happened. Repo owner confirmed this
+   tradeoff is fine (asked directly, chose "one recurring amount" over
+   building per-month amount records).
+
+"Spent this month" and "remaining" are never stored — computed live per
+viewed month by `budgetSpentInMonthProvider` (sums `out`-type transactions
+tagged with that budget, within the month). `ManageBudgetsScreen` has its
+own month pager for this reason, separate from the Transactions tab's.
+
+**Where it's reachable**: its own bottom-nav tab (moved there from Settings
+per repo owner feedback — "it should be in the bottom menu"), plus "Add
+Budget" in the center FAB speed-dial. No FAB on the tab itself (redundant
+with the speed-dial). Archive/unarchive is the same active/inactive
+mechanism as Currencies/Categories (see Conventions below) — hides a
+budget from the transaction-tagging dropdown without losing its history.
+
+**Tagging UX gotcha**: the Budget dropdown in Add/Edit Transaction is
+filtered to only the selected account's currency, and is keyed on
+`ValueKey(_accountId)` in `add_transaction_screen.dart` — `DropdownButtonFormField`
+does not re-read `initialValue` on rebuild (a general Flutter gotcha, not
+specific to this field), so without that key, switching to an account in a
+different currency could leave the dropdown holding a `_budgetId` that's
+no longer in its (re-filtered) item list and crash. `_budgetId` is also
+explicitly reset to `null` in the Account dropdown's `onChanged` for the
+same reason.
+
+## Reports period selector
+
+`utils/report_period.dart`'s `ReportPeriod` (Daily/Monthly/Yearly/All/
+Custom) replaced the old fixed month pager, matching the reference app's
+Laporan calendar-icon menu (Harian/Bulanan/Tahunan/Semua/Sesuaikan).
+`report_providers.dart` takes an optional `(start, end)` range (both null
+= all-time) rather than a hardcoded month. Tapping a category in the
+breakdown drills down into the Transactions tab, pre-filtered to that
+category, opened on the month containing the period's `reference` date
+(closest equivalent for nonmonthly periods, since the Transactions tab
+itself still only pages by month — it wasn't asked to grow the same
+Daily/Yearly/All/Custom selector).
 
 ## App structure
 
@@ -175,79 +245,72 @@ lib/
       default pastel tinting (`app.dart`) since it didn't match the
       reference app's flat saturated colors — verified visually on-device
       before the physical device was disconnected.
-- [x] **Phase 2 — Transfers**: `Transfers` table wired up.
-      `transfer_providers.dart` (repository + `accountLedgerProvider`, a
-      raw-SQL UNION merging Transactions and both Transfer legs into one
-      `LedgerEntry` stream — reused for the home tab too via
-      `globalLedgerInMonthProvider`/`GlobalLedgerEntry`).
-      `features/transfers/add_transfer_screen.dart`: same-currency
-      auto-fills "amount received" from "amount sent" (editable override,
-      e.g. a fee) until the user types in that field directly; cross-
-      currency requires both, shows a derived (display-only) rate. Transfer
-      entry points: swap-horiz icon on Account Detail and Accounts
-      Overview app bars. Transfers are excluded from the Transactions tab's
+- [x] **Phase 2 — Transfers**: `Transfers` table wired up. Transfer entry
+      point is the FAB speed-dial now (see Navigation shell above), not a
+      per-screen icon. Transfers are excluded from the Transactions tab's
       income/expense summary (they move money between your own accounts)
-      but do show as line items everywhere. `flutter build apk --debug`
-      verified after this phase; **not yet re-verified on-device** (repo
-      owner disconnected their phone before this phase was built —
-      re-check the golden path including a same-currency and a
-      cross-currency transfer next time a device is available).
-- [x] **Phase 3 — Reports**: `report_providers.dart` (`categoryBreakdownProvider`
-      — typed Drift join+groupBy+aggregate; `currencyMonthTotalsProvider`
-      — raw SQL conditional-sum). `reports_screen.dart`: currency selector,
-      month pager, Income/Expense/Net line, Income/Expense toggle, `fl_chart`
-      donut + breakdown list. `flutter build apk --debug` verified; **not
-      yet visually verified on-device** (no phone connected this phase).
-- [x] **Phase 4 — Google Drive backup/restore, code complete but
-      UNTESTED — needs the repo owner's manual Google Cloud setup before it
-      can actually run.** `services/export_import.dart` (DB <-> versioned
-      JSON, transactional restore), `services/drive_backup_service.dart`
-      (backup/list/restore/prune against Drive `appDataFolder`, only the
-      non-sensitive `drive.appdata` scope), `providers/backup_providers.dart`
-      (sign-in state via `GoogleSignIn.instance.authenticationEvents`,
-      `shared_preferences`-backed last-backup timestamp),
-      `features/backup/backup_settings_screen.dart` (sign in/out, back up
-      now, restore-with-confirmation). Wired into Settings. `flutter build
-      apk --debug` succeeds, but sign-in/backup/restore have **never been
-      exercised against real Google Cloud credentials**.
+      but do show as line items everywhere, including the Reports drill-
+      down's account/category filters where applicable.
+- [x] **Phase 3 — Reports**: currency selector + `ReportPeriod` selector
+      (see dedicated section above) + Income/Expense toggle + `fl_chart`
+      donut/breakdown, with drill-down into a filtered Transactions tab.
+- [x] **Phase 4 — Google Drive backup/restore. Code complete, credentials
+      configured, but the actual sign-in/backup/restore flow has still
+      never been exercised end-to-end on-device** (blocked each time so
+      far on the repo owner's phone being connected). `services/
+      export_import.dart` (DB <-> versioned JSON, transactional restore),
+      `services/drive_backup_service.dart` (backup/list/restore/prune
+      against Drive `appDataFolder`, only the non-sensitive `drive.appdata`
+      scope), `providers/backup_providers.dart` (sign-in state via
+      `GoogleSignIn.instance.authenticationEvents` — see the "stream must
+      never error" note below —, `shared_preferences`-backed last-backup
+      timestamp), `features/backup/backup_settings_screen.dart`.
 
-      **What's blocking real use — a discovery from reading the installed
-      `google_sign_in_android-7.2.16` package source, more precise than
-      what was assumed when this plan was first written**: v7 uses
-      Android's Credential Manager, which needs a **Web-application-type**
-      OAuth client ID passed as `serverClientId` — not only the
-      Android-type client tied to a SHA-1 that the original plan assumed
-      was sufficient. Both are needed together. `services/google_config.dart`
-      reads this as `GOOGLE_SERVER_CLIENT_ID` via `--dart-define` (never
-      hardcoded); the Backup & Restore screen shows a "not configured"
-      state instead of a confusing native error while it's blank.
+      **Google Cloud setup is done**: Drive API enabled, OAuth consent
+      screen **published to Production** (repo owner's choice, so any
+      Google account can sign in — not just pre-listed test users; each
+      account sees a one-time "unverified app" warning to click through,
+      accepted as fine for a personal app), Android OAuth client
+      (`com.prajnapras.dompetkuh`, debug SHA-1
+      `25:26:26:AF:61:82:6A:D9:31:A4:95:94:17:D7:7F:F1:8F:8C:07:91` — a
+      **second** Android client with the release SHA-1 will be needed once
+      a release keystore exists), Web OAuth client created and its ID
+      hardcoded as the default in `services/google_config.dart`'s
+      `GOOGLE_SERVER_CLIENT_ID` (client IDs are public identifiers, not
+      secrets, so this is fine to commit — still overridable via
+      `--dart-define` if it ever needs to change).
 
-      Manual steps in Google Cloud Console (console.cloud.google.com), in
-      order:
-      1. Create or select a project.
-      2. APIs & Services -> Library -> enable **Google Drive API**.
-      3. APIs & Services -> OAuth consent screen -> External -> fill the
-         minimum required fields -> add the repo owner's own Google account
-         as a **test user**. Stays in "Testing" mode — fine indefinitely
-         since `drive.appdata` is a non-sensitive scope, no Google
-         verification review needed.
-      4. APIs & Services -> Credentials -> Create Credentials -> OAuth
-         client ID -> type **Android**: package name
-         `com.prajnapras.dompetkuh`, SHA-1 `25:26:26:AF:61:82:6A:D9:31:A4:
-         95:94:17:D7:7F:F1:8F:8C:07:91` (this machine's debug keystore —
-         regenerate via `keytool -list -v -keystore ~/.android/debug.keystore
-         -alias androiddebugkey -storepass android -keypass android` if it
-         ever changes; a **second** Android client with the release SHA-1
-         will be needed once a release keystore exists).
-      5. Credentials -> Create Credentials -> OAuth client ID -> type
-         **Web application** (no redirect URIs needed for this use case) ->
-         copy its **Client ID** (ends `.apps.googleusercontent.com`).
-      6. Hand that Client ID to Claude, or run the app directly with
-         `flutter run --dart-define=GOOGLE_SERVER_CLIENT_ID=<that id> -d <device>`
-         (and pass the same `--dart-define` to `flutter build apk` for
-         installed builds — otherwise the Web client ID silently reverts to
-         unconfigured).
+      **Real bug already found and fixed here, worth knowing about**: a
+      failed/cancelled sign-in attempt surfaces as an error event on
+      `GoogleSignIn.instance.authenticationEvents`. The naive
+      implementation let that propagate into `currentGoogleAccountProvider`'s
+      `StreamProvider`, which has no automatic recovery from an `AsyncError`
+      state — the Backup screen got stuck showing raw error text with no
+      way back to the Sign In button. Fixed by swallowing errors on that
+      stream (`.handleError((_, __) {})`) and treating any lightweight-auth
+      failure as plain "not signed in" (`null`) instead — this stream's
+      only job is tracking current sign-in state, never surfacing
+      transient auth errors; actual failures are reported by
+      `BackupActions.signIn()`'s own caller via try/catch + a snackbar.
+      **If touching this stream again, preserve that property.**
 
-      Once configured, verify the actual golden path (not yet done):
+      Next step: verify the actual golden path once a device is connected:
       sign in -> back up -> change some data locally -> restore -> confirm
       the change reverted -> sign out.
+- [x] **Post-Phase-4 polish round**: Budgets feature (see dedicated section
+      above), Transactions tab filters + Reports period selector + drill-
+      down (see dedicated sections above), removed all per-screen Add/
+      Transfer shortcuts in favor of the FAB speed-dial (see Navigation
+      shell above), account tap now opens Edit directly (Account Detail
+      screen deleted), live thousands-grouping on amount fields
+      (`utils/thousands_input_formatter.dart`) plus a plain-language
+      cents/subunit hint (`amountDecimalHint` in `formatters.dart`) since
+      "where do I put the cents" wasn't obvious, currency archive re-
+      surfaced as a Switch (clearer than a buried "Archive" menu item),
+      custom app icon (was still the default Flutter logo — generated via
+      PIL + `flutter_launcher_icons`, source at `assets/icon/`), and
+      bottom safe-area padding added to every form's `ListView` (the last
+      button, e.g. DELETE, was getting covered by the gesture-nav bar on
+      the repo owner's device — `MediaQuery.of(context).padding.bottom`
+      added to each form's bottom padding; apply the same pattern to any
+      new form screen with a button as its last child).
