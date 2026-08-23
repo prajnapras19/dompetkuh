@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../accounts/accounts_overview_screen.dart';
+import '../backup/backup_settings_screen.dart';
 import '../categories/manage_categories_screen.dart';
 import '../currencies/manage_currencies_screen.dart';
 
@@ -50,11 +51,17 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           const Divider(),
-          const ListTile(
-            enabled: false,
-            leading: Icon(Icons.cloud_outlined),
-            title: Text('Backup & Restore'),
-            subtitle: Text('Coming in Phase 4 — Google Drive backup'),
+          ListTile(
+            leading: const Icon(Icons.cloud_outlined),
+            title: const Text('Backup & Restore'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const BackupSettingsScreen(),
+                ),
+              );
+            },
           ),
         ],
       ),
