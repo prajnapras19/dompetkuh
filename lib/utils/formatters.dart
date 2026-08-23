@@ -76,3 +76,14 @@ class Money {
     return scale;
   }
 }
+
+/// Short example string explaining how to type a currency's subunit (e.g.
+/// cents) into the single AMOUNT field — there's no separate subunit field;
+/// typing "." after the whole-number part is what "puts in the cents".
+/// Only meaningful for currencies with decimalPlaces > 0.
+String amountDecimalHint(Currency currency) {
+  final unit = currency.subunitName ?? 'the subunit';
+  final example = '12.${'5'.padRight(currency.decimalPlaces, '0')}';
+  final subunitDigits = example.split('.').last;
+  return 'Type "." for $unit — e.g. $example means 12 whole + $subunitDigits $unit';
+}

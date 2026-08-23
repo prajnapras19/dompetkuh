@@ -8,6 +8,7 @@ import '../../providers/account_providers.dart';
 import '../../providers/transfer_providers.dart';
 import '../../theme/colors.dart';
 import '../../utils/formatters.dart';
+import '../../utils/thousands_input_formatter.dart';
 import '../../widgets/form_helpers.dart';
 
 /// Add or edit a transfer between two accounts. Same-currency transfers
@@ -141,11 +142,20 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                 ),
                 const SizedBox(height: 16),
                 FormCaption('AMOUNT SENT (${fromAccount.currency.code})'),
+                if (fromAccount.currency.decimalPlaces > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      amountDecimalHint(fromAccount.currency),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
                 TextFormField(
                   controller: _fromAmountController,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
                     hintText: fromAccount.currency.decimalPlaces == 0
                         ? '0'
@@ -167,11 +177,20 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                 ),
                 const SizedBox(height: 16),
                 FormCaption('AMOUNT RECEIVED (${toAccount.currency.code})'),
+                if (toAccount.currency.decimalPlaces > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      amountDecimalHint(toAccount.currency),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
                 TextFormField(
                   controller: _toAmountController,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
                     hintText: toAccount.currency.decimalPlaces == 0
                         ? '0'
