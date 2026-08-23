@@ -18,7 +18,7 @@ class AccountsOverviewScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final summariesAsync = ref.watch(accountSummariesProvider);
+    final summariesAsync = ref.watch(allAccountSummariesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Accounts')),
@@ -102,7 +102,15 @@ class _CurrencyGroup extends ConsumerWidget {
               iconKey: summary.account.icon,
               colorValue: summary.account.color,
             ),
-            title: Text(summary.account.name),
+            title: Text(
+              summary.account.name,
+              style: summary.account.archivedAt != null
+                  ? const TextStyle(
+                      decoration: TextDecoration.lineThrough,
+                      color: Colors.grey,
+                    )
+                  : null,
+            ),
             trailing: MoneyText(
               minorUnits: summary.balance,
               currency: summary.currency,

@@ -65,11 +65,26 @@ AccountSummary _readAccountSummary(QueryRow row) {
 }
 
 /// All non-archived accounts with their currency and live balance, ordered
-/// for the Accounts Overview screen.
+/// for pickers (Add Transaction/Transfer) — archived accounts shouldn't be
+/// selectable for new entries.
 final accountSummariesProvider = StreamProvider<List<AccountSummary>>((ref) {
   final db = ref.watch(databaseProvider);
   final query = db.customSelect(
     '$_accountCurrencySelect WHERE a.archived_at IS NULL ORDER BY a.sort_order, a.name',
+    readsFrom: {db.accounts, db.currencies, db.transactions, db.transfers},
+  ).map(_readAccountSummary);
+  return query.watch();
+});
+
+/// All accounts including archived, for the Accounts Overview screen —
+/// archived accounts still need to be visible (struck-through) there, or
+/// there'd be no way to find them again to unarchive.
+final allAccountSummariesProvider = StreamProvider<List<AccountSummary>>((
+  ref,
+) {
+  final db = ref.watch(databaseProvider);
+  final query = db.customSelect(
+    '$_accountCurrencySelect ORDER BY a.sort_order, a.name',
     readsFrom: {db.accounts, db.currencies, db.transactions, db.transfers},
   ).map(_readAccountSummary);
   return query.watch();
@@ -141,6 +156,11 @@ class AccountRepository {
   Future<void> archive(int accountId) {
     return (_db.update(_db.accounts)..where((a) => a.id.equals(accountId)))
         .write(AccountsCompanion(archivedAt: Value(DateTime.now())));
+  }
+
+  Future<void> unarchive(int accountId) {
+    return (_db.update(_db.accounts)..where((a) => a.id.equals(accountId)))
+        .write(const AccountsCompanion(archivedAt: Value(null)));
   }
 
   Future<void> delete(int accountId) {

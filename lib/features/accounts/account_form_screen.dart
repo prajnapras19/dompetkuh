@@ -64,7 +64,28 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     final currenciesAsync = ref.watch(allCurrenciesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(_isEditing ? 'Edit Account' : 'Add Account')),
+      appBar: AppBar(
+        title: Text(_isEditing ? 'Edit Account' : 'Add Account'),
+        actions: [
+          if (_isEditing)
+            PopupMenuButton<String>(
+              onSelected: _handleAction,
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: widget.account!.archivedAt != null
+                      ? 'unarchive'
+                      : 'archive',
+                  child: Text(
+                    widget.account!.archivedAt != null
+                        ? 'Unarchive'
+                        : 'Archive',
+                  ),
+                ),
+                const PopupMenuItem(value: 'delete', child: Text('Delete')),
+              ],
+            ),
+        ],
+      ),
       body: currenciesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -194,6 +215,35 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     }
 
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _handleAction(String action) async {
+    final repo = ref.read(accountRepositoryProvider);
+    final accountId = widget.account!.id;
+    switch (action) {
+      case 'archive':
+        await repo.archive(accountId);
+        if (mounted) Navigator.of(context).pop();
+      case 'unarchive':
+        await repo.unarchive(accountId);
+        if (mounted) Navigator.of(context).pop();
+      case 'delete':
+        final inUse = await repo.hasEntries(accountId);
+        if (inUse) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'This account has transactions — archive it instead.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+        await repo.delete(accountId);
+        if (mounted) Navigator.of(context).pop();
+    }
   }
 }
 
