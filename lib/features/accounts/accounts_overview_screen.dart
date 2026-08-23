@@ -6,10 +6,13 @@ import '../../models/account_summary.dart';
 import '../../providers/account_providers.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
-import '../transfers/add_transfer_screen.dart';
 import 'account_detail_screen.dart';
 import 'account_form_screen.dart';
 
+/// No Transfer shortcut here — it's in the home tab's center speed-dial
+/// menu now, so a second entry point in this app bar would be redundant.
+/// Account Detail keeps its own (it preselects that account, which the
+/// speed-dial can't do).
 class AccountsOverviewScreen extends ConsumerWidget {
   const AccountsOverviewScreen({super.key});
 
@@ -18,20 +21,7 @@ class AccountsOverviewScreen extends ConsumerWidget {
     final summariesAsync = ref.watch(accountSummariesProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Accounts'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            tooltip: 'Transfer',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AddTransferScreen()),
-              );
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Accounts')),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           Navigator.of(context).push(

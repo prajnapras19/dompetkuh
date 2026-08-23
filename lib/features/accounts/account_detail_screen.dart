@@ -12,6 +12,10 @@ import '../transactions/add_transaction_screen.dart';
 import '../transfers/add_transfer_screen.dart';
 import 'account_form_screen.dart';
 
+/// No Add Transaction / Transfer shortcuts here — both live in the home
+/// tab's center speed-dial menu now, so duplicating them per-screen was
+/// just redundant. Editing an entry from the ledger below still opens
+/// the right form with this account preselected.
 class AccountDetailScreen extends ConsumerWidget {
   final int accountId;
 
@@ -66,53 +70,20 @@ class AccountDetailScreen extends ConsumerWidget {
           summaryAsync.maybeWhen(
             data: (s) => s == null
                 ? const SizedBox.shrink()
-                : Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.swap_horiz),
-                        tooltip: 'Transfer',
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => AddTransferScreen(
-                                initialFromAccountId: accountId,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  AccountFormScreen(account: s.account),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                : IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              AccountFormScreen(account: s.account),
+                        ),
+                      );
+                    },
                   ),
             orElse: () => const SizedBox.shrink(),
           ),
         ],
-      ),
-      floatingActionButton: summaryAsync.maybeWhen(
-        data: (s) => s == null
-            ? null
-            : FloatingActionButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          AddTransactionScreen(initialAccountId: accountId),
-                    ),
-                  );
-                },
-                child: const Icon(Icons.add),
-              ),
-        orElse: () => null,
       ),
       body: summaryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -158,7 +129,8 @@ class AccountDetailScreen extends ConsumerWidget {
                     if (entries.isEmpty) {
                       return const Center(
                         child: Text(
-                          'No transactions yet.\nTap + to add one.',
+                          'No transactions yet.\nUse the pencil button on '
+                          'the home tab to add one.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey),
                         ),

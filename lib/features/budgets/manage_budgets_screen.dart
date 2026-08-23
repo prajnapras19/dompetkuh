@@ -9,6 +9,8 @@ import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
 import 'budget_form_screen.dart';
 
+/// No FAB here — "Add Budget" lives in the home tab's center speed-dial
+/// menu, so a second entry point here would just be redundant.
 class ManageBudgetsScreen extends StatefulWidget {
   const ManageBudgetsScreen({super.key});
 
@@ -23,14 +25,6 @@ class _ManageBudgetsScreenState extends State<ManageBudgetsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Budgets')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const BudgetFormScreen()));
-        },
-        child: const Icon(Icons.add),
-      ),
       body: Column(
         children: [
           Padding(
@@ -69,10 +63,11 @@ class _ManageBudgetsScreenState extends State<ManageBudgetsScreen> {
                         child: Padding(
                           padding: EdgeInsets.all(24),
                           child: Text(
-                            'No budgets yet. Tap + to set a monthly amount for '
-                            'something (e.g. Food, Bali Trip) — no alerts, just '
-                            'spent-vs-allocated tracking, and a tag you can put '
-                            'on any transaction.',
+                            'No budgets yet. Use the pencil button below to '
+                            'set a monthly amount for something (e.g. Food, '
+                            'Bali Trip) — no alerts, just spent-vs-allocated '
+                            'tracking, and a tag you can put on any '
+                            'transaction.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey),
                           ),
