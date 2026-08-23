@@ -165,30 +165,89 @@ lib/
       Currencies, Manage Categories. Verified end-to-end on both emulator
       and the repo owner's physical device (create account → log
       transaction → balance updates live).
-- [~] **Nav rework** (post-Phase-1 feedback): home tab should be a global
-      Transactions log (day-grouped, per-currency income/expense/total
-      summary, matching the reference screenshot exactly — plain rows, big
-      day-number headers), Accounts moves under Settings, FAB becomes a
-      shared center-docked "add transaction" button in the bottom bar.
-      `transactionsInMonthProvider` + `GlobalTransactionEntry` +
-      `TransactionsTab` added; **still need to**: wire `TransactionsTab`
-      into `home_shell.dart` as the home tab with the notched center FAB,
-      move `AccountsOverviewScreen` under Settings, verify on-device.
-- [ ] **Phase 2 — Transfers**: Transfers table already exists in the schema
-      (unused so far). Need: transfer providers/repository, Add/Edit
-      Transfer screen (same-currency auto-fill amount, cross-currency dual
-      amount entry), merge transfers into Account Detail's log (currently
-      transactions-only).
-- [ ] **Phase 3 — Reports**: currently a stub screen
-      (`lib/features/reports/reports_screen.dart`). Needs per-account/
-      currency totals, in-vs-out, category breakdown donut (`fl_chart`),
-      period filter.
-- [ ] **Phase 4 — Google Drive backup/restore**: currently a disabled stub
-      row in Settings. Needs `drive_backup_service.dart` (sign-in, JSON
-      export/import against Drive `appDataFolder`), Backup & Restore screen.
-      **Blocked on manual setup only the repo owner can do**: Google Cloud
-      project + Drive API enabled + OAuth consent screen (Testing mode is
-      fine, `drive.appdata` scope doesn't need verification) + Android OAuth
-      client (needs the app's `applicationId` = `com.prajnapras.dompetkuh`
-      and debug/release SHA-1 fingerprints). Ask for this before starting
-      Phase 4 if it hasn't been done yet.
+- [x] **Nav rework** (post-Phase-1 feedback): home tab is now the global
+      Transactions log (`features/transactions/transactions_tab.dart`) —
+      month pager, per-currency income/expense/total summary (plain rows,
+      never blended), day-grouped entries with big day-number headers.
+      `HomeShell` bottom nav is Transactions/Reports/Settings with a
+      `BottomAppBar` + `CircularNotchedRectangle` + centerDocked pencil FAB.
+      `AccountsOverviewScreen` moved under Settings. Also fixed Material 3's
+      default pastel tinting (`app.dart`) since it didn't match the
+      reference app's flat saturated colors — verified visually on-device
+      before the physical device was disconnected.
+- [x] **Phase 2 — Transfers**: `Transfers` table wired up.
+      `transfer_providers.dart` (repository + `accountLedgerProvider`, a
+      raw-SQL UNION merging Transactions and both Transfer legs into one
+      `LedgerEntry` stream — reused for the home tab too via
+      `globalLedgerInMonthProvider`/`GlobalLedgerEntry`).
+      `features/transfers/add_transfer_screen.dart`: same-currency
+      auto-fills "amount received" from "amount sent" (editable override,
+      e.g. a fee) until the user types in that field directly; cross-
+      currency requires both, shows a derived (display-only) rate. Transfer
+      entry points: swap-horiz icon on Account Detail and Accounts
+      Overview app bars. Transfers are excluded from the Transactions tab's
+      income/expense summary (they move money between your own accounts)
+      but do show as line items everywhere. `flutter build apk --debug`
+      verified after this phase; **not yet re-verified on-device** (repo
+      owner disconnected their phone before this phase was built —
+      re-check the golden path including a same-currency and a
+      cross-currency transfer next time a device is available).
+- [x] **Phase 3 — Reports**: `report_providers.dart` (`categoryBreakdownProvider`
+      — typed Drift join+groupBy+aggregate; `currencyMonthTotalsProvider`
+      — raw SQL conditional-sum). `reports_screen.dart`: currency selector,
+      month pager, Income/Expense/Net line, Income/Expense toggle, `fl_chart`
+      donut + breakdown list. `flutter build apk --debug` verified; **not
+      yet visually verified on-device** (no phone connected this phase).
+- [x] **Phase 4 — Google Drive backup/restore, code complete but
+      UNTESTED — needs the repo owner's manual Google Cloud setup before it
+      can actually run.** `services/export_import.dart` (DB <-> versioned
+      JSON, transactional restore), `services/drive_backup_service.dart`
+      (backup/list/restore/prune against Drive `appDataFolder`, only the
+      non-sensitive `drive.appdata` scope), `providers/backup_providers.dart`
+      (sign-in state via `GoogleSignIn.instance.authenticationEvents`,
+      `shared_preferences`-backed last-backup timestamp),
+      `features/backup/backup_settings_screen.dart` (sign in/out, back up
+      now, restore-with-confirmation). Wired into Settings. `flutter build
+      apk --debug` succeeds, but sign-in/backup/restore have **never been
+      exercised against real Google Cloud credentials**.
+
+      **What's blocking real use — a discovery from reading the installed
+      `google_sign_in_android-7.2.16` package source, more precise than
+      what was assumed when this plan was first written**: v7 uses
+      Android's Credential Manager, which needs a **Web-application-type**
+      OAuth client ID passed as `serverClientId` — not only the
+      Android-type client tied to a SHA-1 that the original plan assumed
+      was sufficient. Both are needed together. `services/google_config.dart`
+      reads this as `GOOGLE_SERVER_CLIENT_ID` via `--dart-define` (never
+      hardcoded); the Backup & Restore screen shows a "not configured"
+      state instead of a confusing native error while it's blank.
+
+      Manual steps in Google Cloud Console (console.cloud.google.com), in
+      order:
+      1. Create or select a project.
+      2. APIs & Services -> Library -> enable **Google Drive API**.
+      3. APIs & Services -> OAuth consent screen -> External -> fill the
+         minimum required fields -> add the repo owner's own Google account
+         as a **test user**. Stays in "Testing" mode — fine indefinitely
+         since `drive.appdata` is a non-sensitive scope, no Google
+         verification review needed.
+      4. APIs & Services -> Credentials -> Create Credentials -> OAuth
+         client ID -> type **Android**: package name
+         `com.prajnapras.dompetkuh`, SHA-1 `25:26:26:AF:61:82:6A:D9:31:A4:
+         95:94:17:D7:7F:F1:8F:8C:07:91` (this machine's debug keystore —
+         regenerate via `keytool -list -v -keystore ~/.android/debug.keystore
+         -alias androiddebugkey -storepass android -keypass android` if it
+         ever changes; a **second** Android client with the release SHA-1
+         will be needed once a release keystore exists).
+      5. Credentials -> Create Credentials -> OAuth client ID -> type
+         **Web application** (no redirect URIs needed for this use case) ->
+         copy its **Client ID** (ends `.apps.googleusercontent.com`).
+      6. Hand that Client ID to Claude, or run the app directly with
+         `flutter run --dart-define=GOOGLE_SERVER_CLIENT_ID=<that id> -d <device>`
+         (and pass the same `--dart-define` to `flutter build apk` for
+         installed builds — otherwise the Web client ID silently reverts to
+         unconfigured).
+
+      Once configured, verify the actual golden path (not yet done):
+      sign in -> back up -> change some data locally -> restore -> confirm
+      the change reverted -> sign out.
