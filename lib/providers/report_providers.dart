@@ -4,23 +4,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/category_breakdown_entry.dart';
 import 'database_provider.dart';
 
-typedef ReportPeriod = ({int currencyId, DateTime month, String type});
+/// [start] inclusive, [end] exclusive; both null means all-time.
+typedef CategoryBreakdownArgs = ({
+  int currencyId,
+  DateTime? start,
+  DateTime? end,
+  String type,
+});
 
 /// Category breakdown (total + transaction count per category) for one
-/// currency's accounts, one calendar month, one transaction type (in/out) —
-/// feeds the Reports screen's donut chart and list. [period.month] should
-/// have day=1.
+/// currency's accounts, one transaction type (in/out), within an optional
+/// date range — feeds the Reports screen's donut chart and list.
 final categoryBreakdownProvider =
-    StreamProvider.family<List<CategoryBreakdownEntry>, ReportPeriod>((
+    StreamProvider.family<List<CategoryBreakdownEntry>, CategoryBreakdownArgs>((
       ref,
-      period,
+      args,
     ) {
       final db = ref.watch(databaseProvider);
-      final start = DateTime(period.month.year, period.month.month);
-      final end = DateTime(period.month.year, period.month.month + 1);
 
       final amountSum = db.transactions.amount.sum();
       final txnCount = db.transactions.id.count();
+
+      var predicate =
+          db.accounts.currencyId.equals(args.currencyId) &
+          db.transactions.type.equals(args.type);
+      if (args.start != null) {
+        predicate =
+            predicate & db.transactions.date.isBiggerOrEqualValue(args.start!);
+      }
+      if (args.end != null) {
+        predicate =
+            predicate & db.transactions.date.isSmallerThanValue(args.end!);
+      }
 
       final query =
           db.select(db.transactions).join([
@@ -33,12 +48,7 @@ final categoryBreakdownProvider =
                 db.accounts.id.equalsExp(db.transactions.accountId),
               ),
             ])
-            ..where(
-              db.accounts.currencyId.equals(period.currencyId) &
-                  db.transactions.type.equals(period.type) &
-                  db.transactions.date.isBiggerOrEqualValue(start) &
-                  db.transactions.date.isSmallerThanValue(end),
-            )
+            ..where(predicate)
             ..addColumns([amountSum, txnCount])
             ..groupBy([db.transactions.categoryId]);
 
@@ -57,18 +67,27 @@ final categoryBreakdownProvider =
       );
     });
 
-typedef CurrencyMonthTotals = ({int income, int expense});
+typedef CurrencyTotals = ({int income, int expense});
 
-/// Income vs expense totals for one currency's accounts, one calendar
-/// month — the compact summary line above the Reports donut chart.
-final currencyMonthTotalsProvider =
-    StreamProvider.family<
-      CurrencyMonthTotals,
-      ({int currencyId, DateTime month})
-    >((ref, args) {
+/// [start] inclusive, [end] exclusive; both null means all-time.
+typedef CurrencyTotalsArgs = ({int currencyId, DateTime? start, DateTime? end});
+
+/// Income vs expense totals for one currency's accounts within an optional
+/// date range — the compact summary line above the Reports donut chart.
+final currencyTotalsProvider =
+    StreamProvider.family<CurrencyTotals, CurrencyTotalsArgs>((ref, args) {
       final db = ref.watch(databaseProvider);
-      final start = DateTime(args.month.year, args.month.month);
-      final end = DateTime(args.month.year, args.month.month + 1);
+
+      final conditions = StringBuffer('WHERE a.currency_id = ?');
+      final variables = <Variable>[Variable.withInt(args.currencyId)];
+      if (args.start != null) {
+        conditions.write(' AND t.date >= ?');
+        variables.add(Variable.withDateTime(args.start!));
+      }
+      if (args.end != null) {
+        conditions.write(' AND t.date < ?');
+        variables.add(Variable.withDateTime(args.end!));
+      }
 
       final query = db.customSelect(
         '''
@@ -77,13 +96,9 @@ final currencyMonthTotalsProvider =
           COALESCE(SUM(CASE WHEN t.type = 'out' THEN t.amount ELSE 0 END), 0) AS expense
         FROM transactions t
         INNER JOIN accounts a ON a.id = t.account_id
-        WHERE a.currency_id = ? AND t.date >= ? AND t.date < ?
+        $conditions
         ''',
-        variables: [
-          Variable.withInt(args.currencyId),
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-        ],
+        variables: variables,
         readsFrom: {db.transactions, db.accounts},
       ).map(
         (row) => (
