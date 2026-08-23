@@ -1,0 +1,194 @@
+import 'package:drift/drift.dart' show Value;
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../db/database.dart';
+import '../../providers/budget_providers.dart';
+import '../../providers/currency_providers.dart';
+import '../../utils/formatters.dart';
+import '../../utils/thousands_input_formatter.dart';
+import '../../widgets/form_helpers.dart';
+import '../../widgets/icon_picker_field.dart';
+
+/// Create or edit a budget tag. [budget] null = create.
+class BudgetFormScreen extends ConsumerStatefulWidget {
+  final Budget? budget;
+
+  const BudgetFormScreen({super.key, this.budget});
+
+  @override
+  ConsumerState<BudgetFormScreen> createState() => _BudgetFormScreenState();
+}
+
+class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _amountController;
+  String? _iconKey;
+  int? _colorValue;
+  int? _currencyId;
+  bool _saving = false;
+
+  bool get _isEditing => widget.budget != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final b = widget.budget;
+    _nameController = TextEditingController(text: b?.name ?? '');
+    _amountController = TextEditingController();
+    _iconKey = b?.icon ?? 'wallet';
+    _colorValue = b?.color ?? 0xFF43A047;
+    _currencyId = b?.currencyId;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currenciesAsync = ref.watch(allCurrenciesProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Budget' : 'Add Budget')),
+      body: currenciesAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (allCurrencies) {
+          final currencies = allCurrencies
+              .where(
+                (c) => c.archivedAt == null || c.id == widget.budget?.currencyId,
+              )
+              .toList();
+          if (_currencyId == null && currencies.isNotEmpty) {
+            _currencyId = currencies.first.id;
+          }
+          final currency = currencies.firstWhere(
+            (c) => c.id == _currencyId,
+            orElse: () => currencies.first,
+          );
+
+          if (_amountController.text.isEmpty && widget.budget != null) {
+            _amountController.text = Money.formatEditable(
+              widget.budget!.monthlyAmount,
+              currency,
+            );
+          }
+
+          return Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Center(
+                  child: IconPickerField(
+                    iconKey: _iconKey,
+                    colorValue: _colorValue,
+                    onChanged: (entry) => setState(() {
+                      _iconKey = entry.key;
+                      _colorValue = entry.defaultColor;
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const FormCaption('NAME'),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(hintText: 'e.g. Food'),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 16),
+                const FormCaption('CURRENCY'),
+                DropdownButtonFormField<int>(
+                  initialValue: currency.id,
+                  items: [
+                    for (final c in currencies)
+                      DropdownMenuItem(
+                        value: c.id,
+                        child: Text('${c.code} — ${c.name}'),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() {
+                    _currencyId = v;
+                    _amountController.clear();
+                  }),
+                ),
+                const SizedBox(height: 16),
+                const FormCaption('MONTHLY AMOUNT'),
+                if (currency.decimalPlaces > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      amountDecimalHint(currency),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                TextFormField(
+                  controller: _amountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [ThousandsInputFormatter()],
+                  decoration: InputDecoration(
+                    hintText: currency.decimalPlaces == 0
+                        ? '0'
+                        : '0.${'0' * currency.decimalPlaces}',
+                    prefixText: '${currency.symbol} ',
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Required';
+                    final parsed = Money.parse(v, currency);
+                    if (parsed == null) return 'Invalid amount';
+                    if (parsed < 0) return 'Must be zero or more';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _saving ? null : () => _save(currency),
+                  child: const Text('SAVE'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _save(Currency currency) async {
+    if (!_formKey.currentState!.validate()) return;
+    final amount = Money.parse(_amountController.text, currency)!;
+    setState(() => _saving = true);
+    final repo = ref.read(budgetRepositoryProvider);
+
+    if (_isEditing) {
+      await repo.update(
+        widget.budget!.copyWith(
+          name: _nameController.text.trim(),
+          icon: Value(_iconKey),
+          color: Value(_colorValue),
+          currencyId: Value(_currencyId),
+          monthlyAmount: amount,
+        ),
+      );
+    } else {
+      await repo.create(
+        BudgetsCompanion.insert(
+          name: _nameController.text.trim(),
+          icon: Value(_iconKey),
+          color: Value(_colorValue),
+          currencyId: Value(_currencyId),
+          monthlyAmount: Value(amount),
+        ),
+      );
+    }
+
+    if (mounted) Navigator.of(context).pop();
+  }
+}

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import 'accounts_table.dart';
+import 'budgets_table.dart';
 import 'categories_table.dart';
 
 /// In/out transactions only — transfers live in the separate Transfers table.
@@ -9,6 +10,9 @@ class Transactions extends Table {
 
   IntColumn get accountId => integer().references(Accounts, #id)();
   IntColumn get categoryId => integer().references(Categories, #id)();
+
+  /// Optional budget tag — orthogonal to category, no limits/alerts attached.
+  IntColumn get budgetId => integer().nullable().references(Budgets, #id)();
 
   /// 'in' or 'out'. Amount is always stored positive; sign is derived from this.
   TextColumn get type =>

@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../db/database.dart';
 import '../../providers/account_providers.dart';
+import '../../providers/budget_providers.dart';
 import '../../providers/category_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../theme/colors.dart';
 import '../../utils/formatters.dart';
+import '../../utils/thousands_input_formatter.dart';
 import '../../widgets/form_helpers.dart';
 import '../../widgets/icon_tile.dart';
 
@@ -37,6 +39,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   String _type = CategoryType.out;
   int? _accountId;
   int? _categoryId;
+  int? _budgetId;
   DateTime _date = DateTime.now();
   bool _saving = false;
 
@@ -49,6 +52,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     _type = t?.type ?? CategoryType.out;
     _accountId = t?.accountId ?? widget.initialAccountId;
     _categoryId = t?.categoryId;
+    _budgetId = t?.budgetId;
     _date = t?.date ?? DateTime.now();
     _amountController = TextEditingController();
     _noteController = TextEditingController(text: t?.note ?? '');
@@ -121,7 +125,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                         child: Text('${a.account.name} (${a.currency.code})'),
                       ),
                   ],
-                  onChanged: (v) => setState(() => _accountId = v),
+                  onChanged: (v) => setState(() {
+                    _accountId = v;
+                    // A budget only applies within its own currency — clear
+                    // it so the Budget dropdown never holds a value that's
+                    // no longer in its (now re-filtered) item list.
+                    _budgetId = null;
+                  }),
                 ),
                 const SizedBox(height: 16),
                 const FormCaption('CATEGORY'),
@@ -165,15 +175,71 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                FormCaption(
-                  'AMOUNT'
-                  '${selectedAccount.currency.subunitName != null ? ' (${selectedAccount.currency.subunitName} = ${selectedAccount.currency.decimalPlaces}dp)' : ''}',
+                const FormCaption('BUDGET (OPTIONAL)'),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final budgetsAsync = ref.watch(activeBudgetsProvider);
+                    return budgetsAsync.when(
+                      loading: () => const LinearProgressIndicator(),
+                      error: (e, _) => Text('Error: $e'),
+                      data: (allBudgets) {
+                        // Only budgets in this account's currency — a
+                        // budget's "spent" total only stays meaningful if
+                        // every tagged transaction shares its currency.
+                        final budgets = allBudgets
+                            .where(
+                              (b) => b.currencyId == selectedAccount.currency.id,
+                            )
+                            .toList();
+                        if (budgets.isEmpty) {
+                          return Text(
+                            'No ${selectedAccount.currency.code} budgets yet — '
+                            'add one in the Budgets tab to tag transactions.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          );
+                        }
+                        final valid = budgets.any((b) => b.id == _budgetId);
+                        return DropdownButtonFormField<int?>(
+                          // DropdownButtonFormField owns `value` internally
+                          // after first build and won't re-read
+                          // initialValue on its own — keying on the account
+                          // forces a fresh instance (and fresh initialValue)
+                          // whenever the currency-filtered item list changes.
+                          key: ValueKey(_accountId),
+                          initialValue: valid ? _budgetId : null,
+                          items: [
+                            const DropdownMenuItem(
+                              value: null,
+                              child: Text('None'),
+                            ),
+                            for (final b in budgets)
+                              DropdownMenuItem(value: b.id, child: Text(b.name)),
+                          ],
+                          onChanged: (v) => setState(() => _budgetId = v),
+                        );
+                      },
+                    );
+                  },
                 ),
+                const SizedBox(height: 16),
+                FormCaption('AMOUNT'),
+                if (selectedAccount.currency.decimalPlaces > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      amountDecimalHint(selectedAccount.currency),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
                 TextFormField(
                   controller: _amountController,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
                     hintText: selectedAccount.currency.decimalPlaces == 0
                         ? '0'
@@ -266,6 +332,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         widget.transaction!.copyWith(
           accountId: _accountId!,
           categoryId: _categoryId!,
+          budgetId: Value(_budgetId),
           type: _type,
           amount: amount,
           note: Value(
@@ -281,6 +348,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         TransactionsCompanion.insert(
           accountId: _accountId!,
           categoryId: _categoryId!,
+          budgetId: Value(_budgetId),
           type: _type,
           amount: amount,
           note: Value(

@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../budgets/budget_form_screen.dart';
+import '../budgets/manage_budgets_screen.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
 import '../transactions/add_transaction_screen.dart';
 import '../transactions/transactions_tab.dart';
 import '../transfers/add_transfer_screen.dart';
 
-/// Outer navigation shell: bottom nav (Transactions / Reports / Settings)
-/// with a center-docked FAB for "add transaction", matching the reference
-/// app's bottom-nav-with-raised-pencil-FAB layout. Accounts management
-/// lives under Settings rather than as its own tab.
+/// Outer navigation shell: bottom nav (Transactions / Reports / Budgets /
+/// Settings) with a center-docked FAB for "add transaction", matching the
+/// reference app's bottom-nav-with-raised-pencil-FAB layout. Accounts
+/// management lives under Settings rather than as its own tab.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -20,7 +22,12 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _tabs = [TransactionsTab(), ReportsScreen(), SettingsScreen()];
+  static const _tabs = [
+    TransactionsTab(),
+    ReportsScreen(),
+    ManageBudgetsScreen(),
+    SettingsScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -68,11 +75,18 @@ class _HomeShellState extends State<HomeShell> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _NavButton(
+                    icon: Icons.savings_outlined,
+                    selectedIcon: Icons.savings,
+                    label: 'Budgets',
+                    selected: _index == 2,
+                    onTap: () => setState(() => _index = 2),
+                  ),
+                  _NavButton(
                     icon: Icons.settings_outlined,
                     selectedIcon: Icons.settings,
                     label: 'Settings',
-                    selected: _index == 2,
-                    onTap: () => setState(() => _index = 2),
+                    selected: _index == 3,
+                    onTap: () => setState(() => _index = 3),
                   ),
                 ],
               ),
@@ -85,7 +99,7 @@ class _HomeShellState extends State<HomeShell> {
 
   /// Matches the reference app: the center FAB opens a small menu (Tambah
   /// Transaksi / Transfer Saldo) rather than jumping straight to Add
-  /// Transaction.
+  /// Transaction. Add Budget is an extra entry beyond the reference app.
   void _showAddMenu(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -112,6 +126,16 @@ class _HomeShellState extends State<HomeShell> {
                 Navigator.of(context).pop();
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AddTransferScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.savings_outlined),
+              title: const Text('Add Budget'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const BudgetFormScreen()),
                 );
               },
             ),
