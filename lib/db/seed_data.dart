@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
+import '../widgets/icon_catalog.dart';
 import 'database.dart';
-import 'tables/categories_table.dart';
 
 /// Preset currencies seeded on first DB creation. IDR first as the home
 /// currency for an Indonesia-based user; amounts are always stored as
@@ -43,26 +43,28 @@ CurrenciesCompanion _currency(
 }
 
 /// Preset categories seeded on first DB creation, split by in/out type.
+/// Tile color always follows the icon's default color (see icon_catalog.dart)
+/// so there's one source of truth for the icon<->color mapping.
 final List<CategoriesCompanion> presetCategories = [
-  _category('Salary', CategoryType.in_, 'salary', 0xFF43A047),
-  _category('Gift', CategoryType.in_, 'gift', 0xFFD81B60),
-  _category('Other Income', CategoryType.in_, 'other', 0xFF757575),
-  _category('Food', CategoryType.out, 'food', 0xFFE53935),
-  _category('Groceries', CategoryType.out, 'groceries', 0xFF43A047),
-  _category('Transport', CategoryType.out, 'car', 0xFF1E88E5),
-  _category('Shopping', CategoryType.out, 'shopping', 0xFFFB8C00),
-  _category('Bills', CategoryType.out, 'electricity', 0xFFFDD835),
-  _category('Health', CategoryType.out, 'health', 0xFF00897B),
-  _category('Entertainment', CategoryType.out, 'movie', 0xFF8E24AA),
-  _category('Other', CategoryType.out, 'other', 0xFF757575),
+  _category('Salary', CategoryType.in_, 'salary'),
+  _category('Gift', CategoryType.in_, 'gift'),
+  _category('Other Income', CategoryType.in_, 'other'),
+  _category('Food', CategoryType.out, 'food'),
+  _category('Groceries', CategoryType.out, 'groceries'),
+  _category('Transport', CategoryType.out, 'car'),
+  _category('Shopping', CategoryType.out, 'shopping'),
+  _category('Bills', CategoryType.out, 'electricity'),
+  _category('Health', CategoryType.out, 'health'),
+  _category('Entertainment', CategoryType.out, 'movie'),
+  _category('Other', CategoryType.out, 'other'),
 ];
 
-CategoriesCompanion _category(String name, String type, String icon, int color) {
+CategoriesCompanion _category(String name, String type, String icon) {
   return CategoriesCompanion.insert(
     name: name,
     type: type,
     icon: Value(icon),
-    color: Value(color),
+    color: Value(catalogEntryForKey(icon).defaultColor),
     isPreset: const Value(true),
   );
 }
