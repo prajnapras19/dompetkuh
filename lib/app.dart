@@ -21,8 +21,27 @@ class DompetkuhApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           foregroundColor: Colors.black87,
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
           centerTitle: false,
+        ),
+        bottomAppBarTheme: const BottomAppBarThemeData(
+          color: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 4,
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: dompetkuhBlue,
+          foregroundColor: Colors.white,
+        ),
+        cardTheme: const CardThemeData(surfaceTintColor: Colors.transparent),
+        popupMenuTheme: const PopupMenuThemeData(
+          surfaceTintColor: Colors.transparent,
+          color: Colors.white,
+        ),
+        dialogTheme: const DialogThemeData(
+          surfaceTintColor: Colors.transparent,
+          backgroundColor: Colors.white,
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
