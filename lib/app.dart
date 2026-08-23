@@ -48,9 +48,23 @@ class DompetkuhApp extends StatelessWidget {
             backgroundColor: dompetkuhBlue,
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(24),
             ),
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            minimumSize: const Size(0, 44),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            minimumSize: const Size(0, 44),
             textStyle: const TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1,
@@ -58,8 +72,10 @@ class DompetkuhApp extends StatelessWidget {
           ),
         ),
         inputDecorationTheme: const InputDecorationTheme(
+          isDense: true,
           filled: true,
           fillColor: Color(0xFFF2F2F2),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.all(Radius.circular(8)),
             borderSide: BorderSide.none,
