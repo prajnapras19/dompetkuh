@@ -6,6 +6,7 @@ import '../../models/account_summary.dart';
 import '../../providers/account_providers.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
+import '../transfers/add_transfer_screen.dart';
 import 'account_detail_screen.dart';
 import 'account_form_screen.dart';
 
@@ -17,7 +18,20 @@ class AccountsOverviewScreen extends ConsumerWidget {
     final summariesAsync = ref.watch(accountSummariesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Accounts')),
+      appBar: AppBar(
+        title: const Text('Accounts'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.swap_horiz),
+            tooltip: 'Transfer',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AddTransferScreen()),
+              );
+            },
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           Navigator.of(context).push(

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../models/ledger_entry.dart';
 import '../../providers/account_providers.dart';
 import '../../providers/transaction_providers.dart';
+import '../../providers/transfer_providers.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
 import '../transactions/add_transaction_screen.dart';
+import '../transfers/add_transfer_screen.dart';
 import 'account_form_screen.dart';
 
 class AccountDetailScreen extends ConsumerWidget {
@@ -14,10 +17,44 @@ class AccountDetailScreen extends ConsumerWidget {
 
   const AccountDetailScreen({super.key, required this.accountId});
 
+  Future<void> _openEntry(
+    BuildContext context,
+    WidgetRef ref,
+    LedgerEntry entry,
+  ) async {
+    if (entry.kind == LedgerKind.transaction) {
+      final transaction = await ref.read(
+        transactionByIdProvider(entry.id).future,
+      );
+      if (transaction != null && context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AddTransactionScreen(
+              initialAccountId: accountId,
+              transaction: transaction,
+            ),
+          ),
+        );
+      }
+    } else {
+      final transfer = await ref.read(transferByIdProvider(entry.id).future);
+      if (transfer != null && context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AddTransferScreen(
+              initialFromAccountId: accountId,
+              transfer: transfer,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final summaryAsync = ref.watch(accountSummaryProvider(accountId));
-    final entriesAsync = ref.watch(transactionsForAccountProvider(accountId));
+    final entriesAsync = ref.watch(accountLedgerProvider(accountId));
 
     return Scaffold(
       appBar: AppBar(
@@ -29,16 +66,33 @@ class AccountDetailScreen extends ConsumerWidget {
           summaryAsync.maybeWhen(
             data: (s) => s == null
                 ? const SizedBox.shrink()
-                : IconButton(
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              AccountFormScreen(account: s.account),
-                        ),
-                      );
-                    },
+                : Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.swap_horiz),
+                        tooltip: 'Transfer',
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AddTransferScreen(
+                                initialFromAccountId: accountId,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  AccountFormScreen(account: s.account),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
             orElse: () => const SizedBox.shrink(),
           ),
@@ -97,7 +151,8 @@ class AccountDetailScreen extends ConsumerWidget {
               const Divider(height: 1),
               Expanded(
                 child: entriesAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (e, _) => Center(child: Text('Error: $e')),
                   data: (entries) {
                     if (entries.isEmpty) {
@@ -115,30 +170,28 @@ class AccountDetailScreen extends ConsumerWidget {
                         final entry = entries[index];
                         return ListTile(
                           leading: IconTile(
-                            iconKey: entry.category.icon,
-                            colorValue: entry.category.color,
+                            iconKey: entry.iconKey,
+                            colorValue: entry.iconColor,
                           ),
-                          title: Text(entry.category.name),
+                          title: Text(entry.title),
                           subtitle: Text(
-                            entry.transaction.note?.isNotEmpty == true
-                                ? entry.transaction.note!
+                            entry.note?.isNotEmpty == true
+                                ? entry.note!
                                 : DateFormat(
                                     'EEE, d MMM yyyy',
-                                  ).format(entry.transaction.date),
+                                  ).format(entry.date),
                           ),
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               MoneyText(
-                                minorUnits: entry.transaction.amount,
+                                minorUnits: entry.amount,
                                 currency: summary.currency,
-                                signType: entry.transaction.type,
+                                signType: entry.signType,
                               ),
                               Text(
-                                DateFormat(
-                                  'HH:mm',
-                                ).format(entry.transaction.date),
+                                DateFormat('HH:mm').format(entry.date),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: Colors.grey,
@@ -146,16 +199,7 @@ class AccountDetailScreen extends ConsumerWidget {
                               ),
                             ],
                           ),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AddTransactionScreen(
-                                  initialAccountId: accountId,
-                                  transaction: entry.transaction,
-                                ),
-                              ),
-                            );
-                          },
+                          onTap: () => _openEntry(context, ref, entry),
                         );
                       },
                     );
