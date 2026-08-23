@@ -12,8 +12,8 @@ import '../../providers/transaction_providers.dart';
 import '../../providers/transfer_providers.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
-import 'add_transaction_screen.dart';
 import '../transfers/add_transfer_screen.dart';
+import 'transaction_detail_screen.dart';
 
 /// Home tab: every transaction + transfer across all accounts for the
 /// selected month, day-grouped, matching the reference app's Transaksi
@@ -505,10 +505,8 @@ class _DaySection extends ConsumerWidget {
       if (transaction != null && context.mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => AddTransactionScreen(
-              initialAccountId: global.account.id,
-              transaction: transaction,
-            ),
+            builder: (_) =>
+                TransactionDetailScreen(entry: global, transaction: transaction),
           ),
         );
       }
