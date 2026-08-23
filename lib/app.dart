@@ -34,7 +34,11 @@ class DompetkuhApp extends StatelessWidget {
           backgroundColor: dompetkuhBlue,
           foregroundColor: Colors.white,
         ),
-        cardTheme: const CardThemeData(surfaceTintColor: Colors.transparent),
+        cardTheme: const CardThemeData(
+          color: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 1,
+        ),
         popupMenuTheme: const PopupMenuThemeData(
           surfaceTintColor: Colors.transparent,
           color: Colors.white,

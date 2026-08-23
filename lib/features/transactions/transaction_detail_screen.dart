@@ -58,26 +58,31 @@ class TransactionDetailScreen extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  IconTile(
-                    iconKey: entry.entry.iconKey,
-                    colorValue: entry.entry.iconColor,
-                    size: 56,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: dompetkuhBlue,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      entry.entry.title,
-                      style: const TextStyle(color: Colors.white),
-                    ),
+                  Row(
+                    children: [
+                      IconTile(
+                        iconKey: entry.entry.iconKey,
+                        colorValue: entry.entry.iconColor,
+                        size: 48,
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: dompetkuhBlue,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          entry.entry.title,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   const Divider(height: 1),
