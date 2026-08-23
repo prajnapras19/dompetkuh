@@ -6,73 +6,12 @@ import '../models/global_ledger_entry.dart';
 import '../models/ledger_entry.dart';
 import 'database_provider.dart';
 
-const _ledgerSql = '''
-  SELECT 'transaction' AS kind, t.id AS id, t.date AS date, t.type AS sign_type,
-    t.amount AS amount, c.icon AS icon, c.color AS color, c.name AS title,
-    t.note AS note
-  FROM transactions t
-  INNER JOIN categories c ON c.id = t.category_id
-  WHERE t.account_id = ?
-
-  UNION ALL
-
-  SELECT 'transfer_out' AS kind, tr.id AS id, tr.date AS date, 'out' AS sign_type,
-    tr.from_amount AS amount, 'transfer' AS icon, NULL AS color,
-    'Transfer to ' || dest.name AS title, tr.note AS note
-  FROM transfers tr
-  INNER JOIN accounts dest ON dest.id = tr.to_account_id
-  WHERE tr.from_account_id = ?
-
-  UNION ALL
-
-  SELECT 'transfer_in' AS kind, tr.id AS id, tr.date AS date, 'in' AS sign_type,
-    tr.to_amount AS amount, 'transfer' AS icon, NULL AS color,
-    'Transfer from ' || src.name AS title, tr.note AS note
-  FROM transfers tr
-  INNER JOIN accounts src ON src.id = tr.from_account_id
-  WHERE tr.to_account_id = ?
-
-  ORDER BY date DESC
-''';
-
 LedgerKind _parseKind(String raw) => switch (raw) {
   'transaction' => LedgerKind.transaction,
   'transfer_out' => LedgerKind.transferOut,
   'transfer_in' => LedgerKind.transferIn,
   _ => throw ArgumentError('Unknown ledger kind: $raw'),
 };
-
-/// Merged transactions + transfer legs for one account, newest first —
-/// feeds the Account Detail log (a single reactive stream instead of
-/// juggling two providers in the UI).
-final accountLedgerProvider = StreamProvider.family<List<LedgerEntry>, int>((
-  ref,
-  accountId,
-) {
-  final db = ref.watch(databaseProvider);
-  final query = db.customSelect(
-    _ledgerSql,
-    variables: [
-      Variable.withInt(accountId),
-      Variable.withInt(accountId),
-      Variable.withInt(accountId),
-    ],
-    readsFrom: {db.transactions, db.categories, db.transfers, db.accounts},
-  ).map(
-    (row) => LedgerEntry(
-      kind: _parseKind(row.read<String>('kind')),
-      id: row.read<int>('id'),
-      date: row.read<DateTime>('date'),
-      signType: row.read<String>('sign_type'),
-      amount: row.read<int>('amount'),
-      iconKey: row.readNullable<String>('icon'),
-      iconColor: row.readNullable<int>('color'),
-      title: row.read<String>('title'),
-      note: row.readNullable<String>('note'),
-    ),
-  );
-  return query.watch();
-});
 
 const _globalLedgerColumns = '''
     a.id AS account_id, a.name AS account_name, a.icon AS account_icon,
@@ -86,42 +25,6 @@ const _globalLedgerColumns = '''
     cur.symbol_before_amount AS cur_symbol_before_amount,
     cur.is_preset AS cur_is_preset, cur.sort_order AS cur_sort_order,
     cur.archived_at AS cur_archived_at
-''';
-
-final _globalLedgerSql =
-    '''
-  SELECT 'transaction' AS kind, t.id AS id, t.date AS date, t.type AS sign_type,
-    t.amount AS amount, c.icon AS icon, c.color AS color, c.name AS title,
-    t.note AS note, $_globalLedgerColumns
-  FROM transactions t
-  INNER JOIN categories c ON c.id = t.category_id
-  INNER JOIN accounts a ON a.id = t.account_id
-  INNER JOIN currencies cur ON cur.id = a.currency_id
-  WHERE t.date >= ? AND t.date < ?
-
-  UNION ALL
-
-  SELECT 'transfer_out' AS kind, tr.id AS id, tr.date AS date, 'out' AS sign_type,
-    tr.from_amount AS amount, 'transfer' AS icon, NULL AS color,
-    'Transfer to ' || dest.name AS title, tr.note AS note, $_globalLedgerColumns
-  FROM transfers tr
-  INNER JOIN accounts a ON a.id = tr.from_account_id
-  INNER JOIN accounts dest ON dest.id = tr.to_account_id
-  INNER JOIN currencies cur ON cur.id = a.currency_id
-  WHERE tr.date >= ? AND tr.date < ?
-
-  UNION ALL
-
-  SELECT 'transfer_in' AS kind, tr.id AS id, tr.date AS date, 'in' AS sign_type,
-    tr.to_amount AS amount, 'transfer' AS icon, NULL AS color,
-    'Transfer from ' || src.name AS title, tr.note AS note, $_globalLedgerColumns
-  FROM transfers tr
-  INNER JOIN accounts a ON a.id = tr.to_account_id
-  INNER JOIN accounts src ON src.id = tr.from_account_id
-  INNER JOIN currencies cur ON cur.id = a.currency_id
-  WHERE tr.date >= ? AND tr.date < ?
-
-  ORDER BY date DESC
 ''';
 
 Account _readLedgerAccount(QueryRow row) => Account(
@@ -149,25 +52,105 @@ Currency _readLedgerCurrency(QueryRow row) => Currency(
   archivedAt: row.readNullable<DateTime>('cur_archived_at'),
 );
 
+/// Filters for [globalLedgerInMonthProvider]. categoryId/budgetId exclude
+/// transfers entirely (transfers have neither) — only accountId still
+/// includes transfers, matching either leg.
+typedef LedgerFilter = ({
+  DateTime month,
+  int? accountId,
+  int? categoryId,
+  int? budgetId,
+});
+
 /// All transactions + transfer legs across every account within one
-/// calendar month, newest first — feeds the home Transactions tab.
-/// [month] should have day=1 (year/month only matter).
+/// calendar month, newest first, optionally filtered — feeds the home
+/// Transactions tab. [filter.month] should have day=1.
 final globalLedgerInMonthProvider =
-    StreamProvider.family<List<GlobalLedgerEntry>, DateTime>((ref, month) {
+    StreamProvider.family<List<GlobalLedgerEntry>, LedgerFilter>((
+      ref,
+      filter,
+    ) {
       final db = ref.watch(databaseProvider);
-      final start = DateTime(month.year, month.month);
-      final end = DateTime(month.year, month.month + 1);
+      final start = DateTime(filter.month.year, filter.month.month);
+      final end = DateTime(filter.month.year, filter.month.month + 1);
+      final includeTransfers = filter.categoryId == null && filter.budgetId == null;
+
+      final variables = <Variable>[];
+      final sql = StringBuffer();
+
+      final txnWhere = StringBuffer('t.date >= ? AND t.date < ?');
+      variables.addAll([Variable.withDateTime(start), Variable.withDateTime(end)]);
+      if (filter.accountId != null) {
+        txnWhere.write(' AND t.account_id = ?');
+        variables.add(Variable.withInt(filter.accountId!));
+      }
+      if (filter.categoryId != null) {
+        txnWhere.write(' AND t.category_id = ?');
+        variables.add(Variable.withInt(filter.categoryId!));
+      }
+      if (filter.budgetId != null) {
+        txnWhere.write(' AND t.budget_id = ?');
+        variables.add(Variable.withInt(filter.budgetId!));
+      }
+
+      sql.write('''
+        SELECT 'transaction' AS kind, t.id AS id, t.date AS date, t.type AS sign_type,
+          t.amount AS amount, c.icon AS icon, c.color AS color, c.name AS title,
+          t.note AS note, $_globalLedgerColumns
+        FROM transactions t
+        INNER JOIN categories c ON c.id = t.category_id
+        INNER JOIN accounts a ON a.id = t.account_id
+        INNER JOIN currencies cur ON cur.id = a.currency_id
+        WHERE $txnWhere
+      ''');
+
+      if (includeTransfers) {
+        final accountClause = filter.accountId != null ? ' AND a.id = ?' : '';
+
+        sql.write('''
+          UNION ALL
+          SELECT 'transfer_out' AS kind, tr.id AS id, tr.date AS date, 'out' AS sign_type,
+            tr.from_amount AS amount, 'transfer' AS icon, NULL AS color,
+            'Transfer to ' || dest.name AS title, tr.note AS note, $_globalLedgerColumns
+          FROM transfers tr
+          INNER JOIN accounts a ON a.id = tr.from_account_id
+          INNER JOIN accounts dest ON dest.id = tr.to_account_id
+          INNER JOIN currencies cur ON cur.id = a.currency_id
+          WHERE tr.date >= ? AND tr.date < ?$accountClause
+        ''');
+        variables.addAll([
+          Variable.withDateTime(start),
+          Variable.withDateTime(end),
+        ]);
+        if (filter.accountId != null) {
+          variables.add(Variable.withInt(filter.accountId!));
+        }
+
+        sql.write('''
+          UNION ALL
+          SELECT 'transfer_in' AS kind, tr.id AS id, tr.date AS date, 'in' AS sign_type,
+            tr.to_amount AS amount, 'transfer' AS icon, NULL AS color,
+            'Transfer from ' || src.name AS title, tr.note AS note, $_globalLedgerColumns
+          FROM transfers tr
+          INNER JOIN accounts a ON a.id = tr.to_account_id
+          INNER JOIN accounts src ON src.id = tr.from_account_id
+          INNER JOIN currencies cur ON cur.id = a.currency_id
+          WHERE tr.date >= ? AND tr.date < ?$accountClause
+        ''');
+        variables.addAll([
+          Variable.withDateTime(start),
+          Variable.withDateTime(end),
+        ]);
+        if (filter.accountId != null) {
+          variables.add(Variable.withInt(filter.accountId!));
+        }
+      }
+
+      sql.write(' ORDER BY date DESC');
 
       final query = db.customSelect(
-        _globalLedgerSql,
-        variables: [
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-        ],
+        sql.toString(),
+        variables: variables,
         readsFrom: {
           db.transactions,
           db.categories,

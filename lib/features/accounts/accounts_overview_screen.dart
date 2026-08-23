@@ -6,13 +6,13 @@ import '../../models/account_summary.dart';
 import '../../providers/account_providers.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
-import 'account_detail_screen.dart';
 import 'account_form_screen.dart';
 
 /// No Transfer shortcut here — it's in the home tab's center speed-dial
 /// menu now, so a second entry point in this app bar would be redundant.
-/// Account Detail keeps its own (it preselects that account, which the
-/// speed-dial can't do).
+/// Tapping an account opens Edit directly (no separate per-account
+/// transaction log screen — the Transactions tab's account filter covers
+/// that, without an extra screen to maintain).
 class AccountsOverviewScreen extends ConsumerWidget {
   const AccountsOverviewScreen({super.key});
 
@@ -110,8 +110,7 @@ class _CurrencyGroup extends ConsumerWidget {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      AccountDetailScreen(accountId: summary.account.id),
+                  builder: (_) => AccountFormScreen(account: summary.account),
                 ),
               );
             },

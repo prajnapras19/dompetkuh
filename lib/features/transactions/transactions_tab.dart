@@ -5,6 +5,9 @@ import 'package:intl/intl.dart';
 
 import '../../models/global_ledger_entry.dart';
 import '../../models/ledger_entry.dart';
+import '../../providers/account_providers.dart';
+import '../../providers/budget_providers.dart';
+import '../../providers/category_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../providers/transfer_providers.dart';
 import '../../widgets/icon_tile.dart';
@@ -15,29 +18,81 @@ import '../transfers/add_transfer_screen.dart';
 /// Home tab: every transaction + transfer across all accounts for the
 /// selected month, day-grouped, matching the reference app's Transaksi
 /// screen. Per-currency income/expense/total summary (never blended across
-/// currencies).
+/// currencies). Also reachable pushed (with a back button) from Reports'
+/// category drill-down, via the initial* params.
 class TransactionsTab extends ConsumerStatefulWidget {
-  const TransactionsTab({super.key});
+  final DateTime? initialMonth;
+  final int? initialAccountId;
+  final int? initialCategoryId;
+  final int? initialBudgetId;
+
+  const TransactionsTab({
+    super.key,
+    this.initialMonth,
+    this.initialAccountId,
+    this.initialCategoryId,
+    this.initialBudgetId,
+  });
 
   @override
   ConsumerState<TransactionsTab> createState() => _TransactionsTabState();
 }
 
 class _TransactionsTabState extends ConsumerState<TransactionsTab> {
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month = widget.initialMonth != null
+      ? DateTime(widget.initialMonth!.year, widget.initialMonth!.month)
+      : DateTime(DateTime.now().year, DateTime.now().month);
+  late int? _accountId = widget.initialAccountId;
+  late int? _categoryId = widget.initialCategoryId;
+  late int? _budgetId = widget.initialBudgetId;
+
+  bool get _hasFilter =>
+      _accountId != null || _categoryId != null || _budgetId != null;
 
   @override
   Widget build(BuildContext context) {
-    final entriesAsync = ref.watch(globalLedgerInMonthProvider(_month));
+    final filter = (
+      month: _month,
+      accountId: _accountId,
+      categoryId: _categoryId,
+      budgetId: _budgetId,
+    );
+    final entriesAsync = ref.watch(globalLedgerInMonthProvider(filter));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Transactions')),
+      appBar: AppBar(
+        title: const Text('Transactions'),
+        actions: [
+          IconButton(
+            icon: Icon(_hasFilter ? Icons.filter_alt : Icons.filter_alt_outlined),
+            color: _hasFilter ? Theme.of(context).colorScheme.primary : null,
+            tooltip: 'Filter',
+            onPressed: _openFilterSheet,
+          ),
+        ],
+      ),
       body: Column(
         children: [
           _MonthPager(
             month: _month,
             onChanged: (m) => setState(() => _month = m),
           ),
+          if (_hasFilter)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => setState(() {
+                    _accountId = null;
+                    _categoryId = null;
+                    _budgetId = null;
+                  }),
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('Clear filter'),
+                ),
+              ),
+            ),
           const Divider(height: 1),
           Expanded(
             child: entriesAsync.when(
@@ -47,7 +102,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
                 if (entries.isEmpty) {
                   return const Center(
                     child: Text(
-                      'No transactions this month.',
+                      'No transactions match.',
                       style: TextStyle(color: Colors.grey),
                     ),
                   );
@@ -80,6 +135,161 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openFilterSheet() async {
+    final result = await showModalBottomSheet<_FilterResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _FilterSheet(
+        accountId: _accountId,
+        categoryId: _categoryId,
+        budgetId: _budgetId,
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        _accountId = result.accountId;
+        _categoryId = result.categoryId;
+        _budgetId = result.budgetId;
+      });
+    }
+  }
+}
+
+typedef _FilterResult = ({int? accountId, int? categoryId, int? budgetId});
+
+class _FilterSheet extends ConsumerStatefulWidget {
+  final int? accountId;
+  final int? categoryId;
+  final int? budgetId;
+
+  const _FilterSheet({this.accountId, this.categoryId, this.budgetId});
+
+  @override
+  ConsumerState<_FilterSheet> createState() => _FilterSheetState();
+}
+
+class _FilterSheetState extends ConsumerState<_FilterSheet> {
+  late int? _accountId = widget.accountId;
+  late int? _categoryId = widget.categoryId;
+  late int? _budgetId = widget.budgetId;
+
+  @override
+  Widget build(BuildContext context) {
+    final accountsAsync = ref.watch(accountSummariesProvider);
+    final categoriesInAsync = ref.watch(categoriesByTypeProvider('in'));
+    final categoriesOutAsync = ref.watch(categoriesByTypeProvider('out'));
+    final budgetsAsync = ref.watch(activeBudgetsProvider);
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Filter transactions',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            const Text('ACCOUNT', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            accountsAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (accounts) => DropdownButtonFormField<int?>(
+                initialValue: _accountId,
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All accounts')),
+                  for (final a in accounts)
+                    DropdownMenuItem(
+                      value: a.account.id,
+                      child: Text('${a.account.name} (${a.currency.code})'),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _accountId = v),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('CATEGORY', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            categoriesInAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (inCategories) => categoriesOutAsync.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('Error: $e'),
+                data: (outCategories) {
+                  final categories = [...inCategories, ...outCategories];
+                  final valid = categories.any((c) => c.id == _categoryId);
+                  return DropdownButtonFormField<int?>(
+                    initialValue: valid ? _categoryId : null,
+                    items: [
+                      const DropdownMenuItem(
+                        value: null,
+                        child: Text('All categories'),
+                      ),
+                      for (final c in categories)
+                        DropdownMenuItem(value: c.id, child: Text(c.name)),
+                    ],
+                    onChanged: (v) => setState(() => _categoryId = v),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('BUDGET', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            budgetsAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (budgets) {
+                final valid = budgets.any((b) => b.id == _budgetId);
+                return DropdownButtonFormField<int?>(
+                  initialValue: valid ? _budgetId : null,
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('All budgets')),
+                    for (final b in budgets)
+                      DropdownMenuItem(value: b.id, child: Text(b.name)),
+                  ],
+                  onChanged: (v) => setState(() => _budgetId = v),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop((
+                      accountId: null,
+                      categoryId: null,
+                      budgetId: null,
+                    )),
+                    child: const Text('CLEAR'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop((
+                      accountId: _accountId,
+                      categoryId: _categoryId,
+                      budgetId: _budgetId,
+                    )),
+                    child: const Text('APPLY'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
