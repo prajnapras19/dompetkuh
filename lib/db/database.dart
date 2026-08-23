@@ -8,6 +8,8 @@ import 'tables/currencies_table.dart';
 import 'tables/transactions_table.dart';
 import 'tables/transfers_table.dart';
 
+export 'tables/categories_table.dart' show CategoryType;
+
 part 'database.g.dart';
 
 @DriftDatabase(
