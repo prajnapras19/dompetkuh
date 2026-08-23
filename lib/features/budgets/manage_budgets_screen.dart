@@ -5,8 +5,8 @@ import 'package:intl/intl.dart';
 import '../../db/database.dart';
 import '../../providers/budget_providers.dart';
 import '../../providers/currency_providers.dart';
+import '../../utils/formatters.dart';
 import '../../widgets/icon_tile.dart';
-import '../../widgets/money_text.dart';
 import 'budget_form_screen.dart';
 
 /// No FAB here — "Add Budget" lives in the home tab's center speed-dial
@@ -126,16 +126,20 @@ class _BudgetRow extends ConsumerWidget {
             error: (_, _) => null,
             data: (spent) {
               final remaining = budget.monthlyAmount - spent;
-              return Row(
+              // A Row here reliably overflowed on-device once amounts got
+              // long — two short lines wrap safely instead.
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  MoneyText(minorUnits: spent, currency: currency),
-                  const Text(' / '),
-                  MoneyText(
-                    minorUnits: budget.monthlyAmount,
-                    currency: currency,
+                  Text(
+                    '${Money.formatDisplay(spent, currency)} of '
+                    '${Money.formatDisplay(budget.monthlyAmount, currency)}',
                   ),
-                  const Text('  ·  remaining '),
-                  MoneyText(minorUnits: remaining, currency: currency),
+                  Text(
+                    'Remaining: ${Money.formatDisplay(remaining, currency)}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ],
               );
             },
