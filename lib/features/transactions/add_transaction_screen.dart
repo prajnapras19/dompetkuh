@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../db/database.dart';
 import '../../providers/account_providers.dart';
@@ -9,6 +8,7 @@ import '../../providers/category_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../theme/colors.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/form_helpers.dart';
 import '../../widgets/icon_tile.dart';
 
 /// Add or edit an in/out transaction. [initialAccountId] preselects the
@@ -111,7 +111,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   }),
                 ),
                 const SizedBox(height: 20),
-                const _Caption('ACCOUNT'),
+                const FormCaption('ACCOUNT'),
                 DropdownButtonFormField<int>(
                   initialValue: selectedAccount.account.id,
                   items: [
@@ -124,7 +124,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   onChanged: (v) => setState(() => _accountId = v),
                 ),
                 const SizedBox(height: 16),
-                const _Caption('CATEGORY'),
+                const FormCaption('CATEGORY'),
                 categoriesAsync.when(
                   loading: () => const LinearProgressIndicator(),
                   error: (e, _) => Text('Error: $e'),
@@ -165,7 +165,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                _Caption(
+                FormCaption(
                   'AMOUNT'
                   '${selectedAccount.currency.subunitName != null ? ' (${selectedAccount.currency.subunitName} = ${selectedAccount.currency.decimalPlaces}dp)' : ''}',
                 ),
@@ -189,13 +189,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                const _Caption('NOTE (OPTIONAL)'),
+                const FormCaption('NOTE (OPTIONAL)'),
                 TextFormField(controller: _noteController),
                 const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
-                      child: _DateField(
+                      child: DateField(
                         date: _date,
                         onChanged: (d) => setState(
                           () => _date = DateTime(
@@ -210,7 +210,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _TimeField(
+                      child: TimeField(
                         date: _date,
                         onChanged: (t) => setState(
                           () => _date = DateTime(
@@ -386,79 +386,6 @@ class _ToggleButton extends StatelessWidget {
             color: selected ? Colors.white : color,
             fontWeight: FontWeight.bold,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DateField extends StatelessWidget {
-  final DateTime date;
-  final ValueChanged<DateTime> onChanged;
-  const _DateField({required this.date, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: date,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (picked != null) onChanged(picked);
-      },
-      child: InputDecorator(
-        decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.calendar_today, size: 18),
-        ),
-        child: Text(DateFormat('EEE, d MMM yyyy').format(date)),
-      ),
-    );
-  }
-}
-
-class _TimeField extends StatelessWidget {
-  final DateTime date;
-  final ValueChanged<TimeOfDay> onChanged;
-  const _TimeField({required this.date, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showTimePicker(
-          context: context,
-          initialTime: TimeOfDay.fromDateTime(date),
-        );
-        if (picked != null) onChanged(picked);
-      },
-      child: InputDecorator(
-        decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.access_time, size: 18),
-        ),
-        child: Text(DateFormat('HH:mm').format(date)),
-      ),
-    );
-  }
-}
-
-class _Caption extends StatelessWidget {
-  final String text;
-  const _Caption(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey,
-          letterSpacing: 1,
         ),
       ),
     );
