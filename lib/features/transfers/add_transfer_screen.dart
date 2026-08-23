@@ -264,10 +264,6 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: dompetkuhExpenseRed,
                       side: const BorderSide(color: dompetkuhExpenseRed),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                     child: const Text('DELETE'),
                   ),
