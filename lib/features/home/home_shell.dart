@@ -4,6 +4,7 @@ import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
 import '../transactions/add_transaction_screen.dart';
 import '../transactions/transactions_tab.dart';
+import '../transfers/add_transfer_screen.dart';
 
 /// Outer navigation shell: bottom nav (Transactions / Reports / Settings)
 /// with a center-docked FAB for "add transaction", matching the reference
@@ -27,40 +28,92 @@ class _HomeShellState extends State<HomeShell> {
       body: IndexedStack(index: _index, children: _tabs),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const AddTransactionScreen()),
-          );
-        },
+        onPressed: () => _showAddMenu(context),
         child: const Icon(Icons.edit),
       ),
       bottomNavigationBar: BottomAppBar(
         shape: const CircularNotchedRectangle(),
         notchMargin: 8,
+        padding: EdgeInsets.zero,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          // Two equal-width halves split exactly at screen-center, which is
+          // also where floatingActionButtonLocation.centerDocked always
+          // places the FAB/notch — so they line up regardless of how many
+          // buttons end up in each half (a fixed-width spacer here doesn't
+          // reliably match the notch's actual position).
           children: [
-            _NavButton(
-              icon: Icons.list_alt_outlined,
-              selectedIcon: Icons.list_alt,
-              label: 'Transactions',
-              selected: _index == 0,
-              onTap: () => setState(() => _index = 0),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _NavButton(
+                    icon: Icons.list_alt_outlined,
+                    selectedIcon: Icons.list_alt,
+                    label: 'Transactions',
+                    selected: _index == 0,
+                    onTap: () => setState(() => _index = 0),
+                  ),
+                  _NavButton(
+                    icon: Icons.pie_chart_outline,
+                    selectedIcon: Icons.pie_chart,
+                    label: 'Reports',
+                    selected: _index == 1,
+                    onTap: () => setState(() => _index = 1),
+                  ),
+                ],
+              ),
             ),
-            _NavButton(
-              icon: Icons.pie_chart_outline,
-              selectedIcon: Icons.pie_chart,
-              label: 'Reports',
-              selected: _index == 1,
-              onTap: () => setState(() => _index = 1),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _NavButton(
+                    icon: Icons.settings_outlined,
+                    selectedIcon: Icons.settings,
+                    label: 'Settings',
+                    selected: _index == 2,
+                    onTap: () => setState(() => _index = 2),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 48),
-            _NavButton(
-              icon: Icons.settings_outlined,
-              selectedIcon: Icons.settings,
-              label: 'Settings',
-              selected: _index == 2,
-              onTap: () => setState(() => _index = 2),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Matches the reference app: the center FAB opens a small menu (Tambah
+  /// Transaksi / Transfer Saldo) rather than jumping straight to Add
+  /// Transaction.
+  void _showAddMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Add Transaction'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AddTransactionScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Transfer'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AddTransferScreen()),
+                );
+              },
             ),
           ],
         ),
