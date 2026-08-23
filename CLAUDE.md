@@ -64,8 +64,11 @@ section below for the filter UI, which also filters by category/budget).
 - **State management**: `flutter_riverpod`, hand-written providers (no
   codegen, to avoid a second build_runner concern on top of Drift's).
 - **Google Drive backup**: `google_sign_in` v7 + `googleapis` (`drive/v3`) +
-  `extension_google_sign_in_as_googleapis_auth`. Scope: `drive.appdata` only
-  (non-sensitive, no Google app-verification review needed).
+  `extension_google_sign_in_as_googleapis_auth`. Scope: `drive.file` (lets
+  the app manage only the files/folders it creates itself — non-sensitive,
+  no Google app-verification review needed). Backups land in a visible
+  "Dompetkuh Backups" folder in the user's own My Drive (matching the
+  reference app), not a hidden appDataFolder.
 - **Charts**: `fl_chart`.
 - **Routing**: plain `Navigator`/`MaterialPageRoute` (screen set is small).
 
@@ -120,16 +123,29 @@ verbatim. It's two things bolted together:
    orthogonal to `categoryId`. **Transfers can never carry a budget tag**
    (no `budgetId` column on `Transfers` — tagging a transfer wouldn't mean
    anything sensible since it doesn't represent income/expense).
-2. **A recurring monthly allocation.** Each `Budget` also has exactly
-   **one** `currencyId` (required, like `Accounts` — otherwise summing
-   "spent" across mixed currencies would be meaningless) and a single
-   `monthlyAmount`. This amount **recurs identically every month** — there
-   is no per-month history table. If you edit a budget's monthly amount,
-   the change is retroactive: paging back to a past month in the Budgets
-   tab will show *that* month's spending against the *current* amount, not
-   whatever it was when that month happened. Repo owner confirmed this
-   tradeoff is fine (asked directly, chose "one recurring amount" over
-   building per-month amount records).
+2. **A monthly allocation, effective-dated per month.** Each `Budget` also
+   has exactly **one** `currencyId` (required, like `Accounts` — otherwise
+   summing "spent" across mixed currencies would be meaningless). The
+   amount itself lives in a separate `BudgetAmounts` table
+   (`budgetId, effectiveFrom, amount`), **not** a column on `Budgets` —
+   this was originally a single flat `monthlyAmount` that recurred
+   identically every month, but the repo owner explicitly reversed that
+   decision (asked directly via AskUserQuestion, chose "add per-month
+   effective-dating" over the simpler flat-amount model) once they thought
+   through the concrete scenario of changing next month's budget and
+   *not* wanting it to silently rewrite this month's numbers too.
+   `budgetAmountForMonthProvider` (`providers/budget_providers.dart`)
+   resolves the amount for a given month by finding the latest
+   `BudgetAmounts` row with `effectiveFrom <= that month`
+   (`ORDER BY effectiveFrom DESC LIMIT 1`) — so editing a budget's amount
+   only changes it **going forward**; paging back to a past month keeps
+   showing whatever was in effect at the time, and a month before the
+   budget's first `BudgetAmounts` row shows "No amount set for this
+   month" rather than falling back to today's amount.
+   `BudgetFormScreen` always writes a new `BudgetAmounts` row effective
+   the *current* month on save (`BudgetRepository.setAmountEffectiveFrom`)
+   — there's no UI yet for scheduling a change effective some future
+   month, only "change it starting now."
 
 "Spent this month" and "remaining" are never stored — computed live per
 viewed month by `budgetSpentInMonthProvider` (sums `out`-type transactions
@@ -254,31 +270,45 @@ lib/
 - [x] **Phase 3 — Reports**: currency selector + `ReportPeriod` selector
       (see dedicated section above) + Income/Expense toggle + `fl_chart`
       donut/breakdown, with drill-down into a filtered Transactions tab.
-- [x] **Phase 4 — Google Drive backup/restore. Code complete, credentials
-      configured, but the actual sign-in/backup/restore flow has still
-      never been exercised end-to-end on-device** (blocked each time so
-      far on the repo owner's phone being connected). `services/
-      export_import.dart` (DB <-> versioned JSON, transactional restore),
-      `services/drive_backup_service.dart` (backup/list/restore/prune
-      against Drive `appDataFolder`, only the non-sensitive `drive.appdata`
-      scope), `providers/backup_providers.dart` (sign-in state via
+- [x] **Phase 4 — Google Drive backup/restore. Verified end-to-end
+      on-device** (2026-08-23): sign in → back up → restore picker lists
+      the backup. `services/export_import.dart` (DB <-> versioned JSON,
+      transactional restore), `services/drive_backup_service.dart`
+      (backup/list/restore/prune against a visible "Dompetkuh Backups"
+      folder in the user's own My Drive, `drive.file` scope — see Tech
+      stack above), `providers/backup_providers.dart` (sign-in state via
       `GoogleSignIn.instance.authenticationEvents` — see the "stream must
       never error" note below —, `shared_preferences`-backed last-backup
       timestamp), `features/backup/backup_settings_screen.dart`.
 
-      **Google Cloud setup is done**: Drive API enabled, OAuth consent
-      screen **published to Production** (repo owner's choice, so any
-      Google account can sign in — not just pre-listed test users; each
-      account sees a one-time "unverified app" warning to click through,
-      accepted as fine for a personal app), Android OAuth client
-      (`com.prajnapras.dompetkuh`, debug SHA-1
-      `25:26:26:AF:61:82:6A:D9:31:A4:95:94:17:D7:7F:F1:8F:8C:07:91` — a
-      **second** Android client with the release SHA-1 will be needed once
-      a release keystore exists), Web OAuth client created and its ID
-      hardcoded as the default in `services/google_config.dart`'s
-      `GOOGLE_SERVER_CLIENT_ID` (client IDs are public identifiers, not
-      secrets, so this is fine to commit — still overridable via
-      `--dart-define` if it ever needs to change).
+      **Google Cloud setup, and three real bugs found only by actually
+      running the flow on-device** (`flutter analyze`/`build` stayed
+      clean through all of these — none were visible without a live
+      logcat + on-device sign-in attempt):
+      1. The `serverClientId` originally hardcoded in
+         `services/google_config.dart` was an **Android**-type OAuth
+         client's ID, not a **Web application**-type client — Credential
+         Manager rejects that outright ("You must use a Web client as the
+         server client ID"). Needed a separate Web application client
+         created in Console (no redirect URIs/secret needed — it's only
+         ever used as an audience identifier) and its ID swapped in.
+      2. The Android OAuth client (`com.prajnapras.dompetkuh`) had a
+         stale/missing SHA-1 — Credential Manager rejects with
+         `Invalid key value: <base64 SHA-1>:<package>` when the calling
+         APK's signing cert doesn't match what's registered. Current
+         debug keystore's SHA-1 (`cd android && ./gradlew signingReport`):
+         `25:26:26:AF:61:82:6A:D9:31:A4:95:94:17:D7:7F:F1:8F:8C:07:91` — a
+         **second** Android client with the release SHA-1 will be needed
+         once a release keystore exists.
+      3. The Drive API itself wasn't enabled on the Cloud project yet
+         (`DetailedApiRequestError(status: 403, ...has not been used in
+         project ... or it is disabled)`) — enabled via the link in that
+         error message.
+      All three were Console-side fixes, no code change needed for #2/#3.
+      OAuth consent screen is **published to Production** (repo owner's
+      choice, so any Google account can sign in — not just pre-listed
+      test users; each account sees a one-time "unverified app" warning
+      to click through, accepted as fine for a personal app).
 
       **Real bug already found and fixed here, worth knowing about**: a
       failed/cancelled sign-in attempt surfaces as an error event on
@@ -294,9 +324,10 @@ lib/
       `BackupActions.signIn()`'s own caller via try/catch + a snackbar.
       **If touching this stream again, preserve that property.**
 
-      Next step: verify the actual golden path once a device is connected:
-      sign in -> back up -> change some data locally -> restore -> confirm
-      the change reverted -> sign out.
+      Not yet exercised: an actual restore that overwrites local data and
+      confirms the revert (backup + restore-listing are confirmed working;
+      a real restore was deliberately not run against the repo owner's
+      real on-device data during this verification pass), and sign-out.
 - [x] **Post-Phase-4 polish round**: Budgets feature (see dedicated section
       above), Transactions tab filters + Reports period selector + drill-
       down (see dedicated sections above), removed all per-screen Add/
