@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,8 +16,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    expect(find.text('Transactions'), findsWidgets);
-    expect(find.text('Reports'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
+    // Bottom nav is icon-only (no text labels) — assert on the icons
+    // themselves instead.
+    expect(find.byIcon(Icons.list_alt), findsOneWidget);
+    expect(find.byIcon(Icons.pie_chart_outline), findsOneWidget);
+    expect(find.byIcon(Icons.savings_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
   });
 }

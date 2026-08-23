@@ -169,13 +169,12 @@ class _NavButton extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(selected ? selectedIcon : icon, color: color),
-            Text(label, style: TextStyle(color: color, fontSize: 11)),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        // Icon-only per repo owner feedback; Tooltip keeps the label
+        // available on long-press/hover and for accessibility.
+        child: Tooltip(
+          message: label,
+          child: Icon(selected ? selectedIcon : icon, color: color),
         ),
       ),
     );
