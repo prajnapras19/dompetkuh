@@ -42,17 +42,32 @@ final currentGoogleAccountProvider = StreamProvider<GoogleSignInAccount?>((
   }
   final signIn = ref.watch(googleSignInProvider);
 
-  final lightweightFuture = signIn.attemptLightweightAuthentication();
-  if (lightweightFuture != null) {
-    yield await lightweightFuture;
+  // A failed silent-restore attempt (e.g. no cached session, or a config
+  // error) just means "not signed in" — it must not blow up this stream,
+  // or the screen gets stuck on an error with no way back to the Sign In
+  // button.
+  try {
+    final lightweightFuture = signIn.attemptLightweightAuthentication();
+    if (lightweightFuture != null) {
+      yield await lightweightFuture;
+    }
+  } catch (_) {
+    yield null;
   }
 
-  yield* signIn.authenticationEvents.map(
-    (event) => switch (event) {
-      GoogleSignInAuthenticationEventSignIn(:final user) => user,
-      GoogleSignInAuthenticationEventSignOut() => null,
-    },
-  );
+  // Likewise, a cancelled/failed interactive sign-in surfaces as an error
+  // event on this stream (GoogleSignIn's AuthenticationEventException).
+  // Swallow it here too — BackupActions.signIn()'s own caller already
+  // reports that failure via its try/catch — so the stream stays alive and
+  // the UI falls back to "not signed in" instead of a dead-end error state.
+  yield* signIn.authenticationEvents
+      .handleError((Object _, StackTrace _) {})
+      .map(
+        (event) => switch (event) {
+          GoogleSignInAuthenticationEventSignIn(:final user) => user,
+          GoogleSignInAuthenticationEventSignOut() => null,
+        },
+      );
 });
 
 final lastBackupAtProvider = FutureProvider<DateTime?>((ref) async {
