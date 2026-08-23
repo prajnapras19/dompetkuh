@@ -13,5 +13,5 @@
 const googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue:
-      '651616440036-c657ap1bu9hs6bjhjbtgb4ipr0s5gc5o.apps.googleusercontent.com',
+      '651616440036-f3sbmj3uu4gg78ee3ak74fbieulj98f1.apps.googleusercontent.com',
 );
