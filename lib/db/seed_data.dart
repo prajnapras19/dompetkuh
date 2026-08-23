@@ -6,7 +6,15 @@ import 'database.dart';
 /// Preset currencies seeded on first DB creation. IDR first as the home
 /// currency for an Indonesia-based user; amounts are always stored as
 /// integers in `decimalPlaces`-precision minor units (see currencies_table).
+/// List order also drives `sortOrder` so pickers show IDR first instead of
+/// falling back to alphabetical (which would put AUD first).
 final List<CurrenciesCompanion> presetCurrencies = [
+  for (final (index, c) in _currencySeeds.indexed) c(index),
+];
+
+typedef _CurrencySeed = CurrenciesCompanion Function(int sortOrder);
+
+final List<_CurrencySeed> _currencySeeds = [
   _currency('IDR', 'Indonesian Rupiah', 'Rp', 0, null, true),
   _currency('USD', 'US Dollar', '\$', 2, 'cent', true),
   _currency('EUR', 'Euro', '€', 2, 'cent', true),
@@ -23,7 +31,7 @@ final List<CurrenciesCompanion> presetCurrencies = [
   _currency('XAUG', 'Gold', 'g', 3, null, false),
 ];
 
-CurrenciesCompanion _currency(
+_CurrencySeed _currency(
   String code,
   String name,
   String symbol,
@@ -31,7 +39,7 @@ CurrenciesCompanion _currency(
   String? subunitName,
   bool symbolBeforeAmount,
 ) {
-  return CurrenciesCompanion.insert(
+  return (sortOrder) => CurrenciesCompanion.insert(
     code: code,
     name: name,
     symbol: symbol,
@@ -39,13 +47,20 @@ CurrenciesCompanion _currency(
     subunitName: Value(subunitName),
     symbolBeforeAmount: Value(symbolBeforeAmount),
     isPreset: const Value(true),
+    sortOrder: Value(sortOrder),
   );
 }
 
 /// Preset categories seeded on first DB creation, split by in/out type.
-/// Tile color always follows the icon's default color (see icon_catalog.dart)
-/// so there's one source of truth for the icon<->color mapping.
+/// Tile color always follows the icon's default color (see icon_catalog.dart).
+/// Sort order follows list position for the same reason as currencies above.
 final List<CategoriesCompanion> presetCategories = [
+  for (final (index, c) in _categorySeeds.indexed) c(index),
+];
+
+typedef _CategorySeed = CategoriesCompanion Function(int sortOrder);
+
+final List<_CategorySeed> _categorySeeds = [
   _category('Salary', CategoryType.in_, 'salary'),
   _category('Gift', CategoryType.in_, 'gift'),
   _category('Other Income', CategoryType.in_, 'other'),
@@ -59,12 +74,13 @@ final List<CategoriesCompanion> presetCategories = [
   _category('Other', CategoryType.out, 'other'),
 ];
 
-CategoriesCompanion _category(String name, String type, String icon) {
-  return CategoriesCompanion.insert(
+_CategorySeed _category(String name, String type, String icon) {
+  return (sortOrder) => CategoriesCompanion.insert(
     name: name,
     type: type,
     icon: Value(icon),
     color: Value(catalogEntryForKey(icon).defaultColor),
     isPreset: const Value(true),
+    sortOrder: Value(sortOrder),
   );
 }
