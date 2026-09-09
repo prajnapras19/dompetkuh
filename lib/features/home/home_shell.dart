@@ -22,17 +22,29 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _tabs = [
-    TransactionsTab(),
-    ReportsScreen(),
-    ManageBudgetsScreen(),
-    SettingsScreen(),
+  // Only the active tab's screen (and its providers/DB queries) gets built
+  // on first frame; the rest are built the first time they're visited, then
+  // kept alive in the IndexedStack like before. Cuts cold-start work since
+  // Settings/Reports/Budgets no longer all build before the first frame.
+  final _visited = <int>{0};
+
+  static const _tabBuilders = <Widget Function()>[
+    TransactionsTab.new,
+    ReportsScreen.new,
+    ManageBudgetsScreen.new,
+    SettingsScreen.new,
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _tabs),
+      body: IndexedStack(
+        index: _index,
+        children: [
+          for (var i = 0; i < _tabBuilders.length; i++)
+            _visited.contains(i) ? _tabBuilders[i]() : const SizedBox.shrink(),
+        ],
+      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddMenu(context),
@@ -58,14 +70,14 @@ class _HomeShellState extends State<HomeShell> {
                     selectedIcon: Icons.list_alt,
                     label: 'Transactions',
                     selected: _index == 0,
-                    onTap: () => setState(() => _index = 0),
+                    onTap: () => _selectTab(0),
                   ),
                   _NavButton(
                     icon: Icons.pie_chart_outline,
                     selectedIcon: Icons.pie_chart,
                     label: 'Reports',
                     selected: _index == 1,
-                    onTap: () => setState(() => _index = 1),
+                    onTap: () => _selectTab(1),
                   ),
                 ],
               ),
@@ -79,14 +91,14 @@ class _HomeShellState extends State<HomeShell> {
                     selectedIcon: Icons.savings,
                     label: 'Budgets',
                     selected: _index == 2,
-                    onTap: () => setState(() => _index = 2),
+                    onTap: () => _selectTab(2),
                   ),
                   _NavButton(
                     icon: Icons.settings_outlined,
                     selectedIcon: Icons.settings,
                     label: 'Settings',
                     selected: _index == 3,
-                    onTap: () => setState(() => _index = 3),
+                    onTap: () => _selectTab(3),
                   ),
                 ],
               ),
@@ -95,6 +107,13 @@ class _HomeShellState extends State<HomeShell> {
         ),
       ),
     );
+  }
+
+  void _selectTab(int index) {
+    setState(() {
+      _index = index;
+      _visited.add(index);
+    });
   }
 
   /// Matches the reference app: the center FAB opens a small menu (Tambah
