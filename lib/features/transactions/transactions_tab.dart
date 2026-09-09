@@ -11,8 +11,13 @@ import '../../providers/category_providers.dart';
 import '../../providers/currency_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../providers/transfer_providers.dart';
+import '../../widgets/currency_picker_screen.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
+import '../../widgets/picker_form_field.dart';
+import '../accounts/account_picker_screen.dart';
+import '../budgets/budget_picker_screen.dart';
+import '../categories/category_picker_screen.dart';
 import '../transfers/add_transfer_screen.dart';
 import 'transaction_detail_screen.dart';
 
@@ -229,17 +234,20 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
             accountsAsync.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (accounts) => DropdownButtonFormField<int?>(
-                initialValue: _accountId,
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('All accounts')),
-                  for (final a in accounts)
-                    DropdownMenuItem(
-                      value: a.account.id,
-                      child: Text('${a.account.name} (${a.currency.code})'),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _accountId = v),
+              data: (accounts) => PickerFormField<int>(
+                key: ValueKey(_accountId),
+                value: _accountId ?? allAccountsId,
+                placeholder: 'All accounts',
+                labelBuilder: (id) => id == allAccountsId
+                    ? 'All accounts'
+                    : accounts.where((a) => a.account.id == id).first.account.name,
+                onTap: (context) => Navigator.of(context).push<int>(
+                  MaterialPageRoute(
+                    builder: (_) => const AccountPickerScreen(showAllOption: true),
+                  ),
+                ),
+                onChanged: (v) =>
+                    setState(() => _accountId = v == allAccountsId ? null : v),
               ),
             ),
             const SizedBox(height: 16),
@@ -253,17 +261,25 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
                 data: (outCategories) {
                   final categories = [...inCategories, ...outCategories];
                   final valid = categories.any((c) => c.id == _categoryId);
-                  return DropdownButtonFormField<int?>(
-                    initialValue: valid ? _categoryId : null,
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('All categories'),
+                  if (!valid) _categoryId = null;
+                  return PickerFormField<int>(
+                    key: ValueKey(_categoryId),
+                    value: _categoryId ?? allCategoriesId,
+                    placeholder: 'All categories',
+                    labelBuilder: (id) => id == allCategoriesId
+                        ? 'All categories'
+                        : categories.where((c) => c.id == id).first.name,
+                    onTap: (context) => Navigator.of(context).push<int>(
+                      MaterialPageRoute(
+                        builder: (_) => const CategoryPickerScreen(
+                          type: null,
+                          showAllOption: true,
+                        ),
                       ),
-                      for (final c in categories)
-                        DropdownMenuItem(value: c.id, child: Text(c.name)),
-                    ],
-                    onChanged: (v) => setState(() => _categoryId = v),
+                    ),
+                    onChanged: (v) => setState(
+                      () => _categoryId = v == allCategoriesId ? null : v,
+                    ),
                   );
                 },
               ),
@@ -273,17 +289,23 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
             currenciesAsync.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (currencies) => DropdownButtonFormField<int?>(
-                initialValue: _currencyId,
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('All currencies'),
+              data: (currencies) => PickerFormField<int>(
+                key: ValueKey(_currencyId),
+                value: _currencyId ?? allCurrenciesId,
+                placeholder: 'All currencies',
+                labelBuilder: (id) => id == allCurrenciesId
+                    ? 'All currencies'
+                    : currencies.where((c) => c.id == id).first.code,
+                onTap: (context) => Navigator.of(context).push<int>(
+                  MaterialPageRoute(
+                    builder: (_) => CurrencyPickerScreen(
+                      currencies: currencies,
+                      showAllOption: true,
+                    ),
                   ),
-                  for (final c in currencies)
-                    DropdownMenuItem(value: c.id, child: Text(c.code)),
-                ],
-                onChanged: (v) => setState(() => _currencyId = v),
+                ),
+                onChanged: (v) =>
+                    setState(() => _currencyId = v == allCurrenciesId ? null : v),
               ),
             ),
             const SizedBox(height: 16),
@@ -293,14 +315,24 @@ class _FilterSheetState extends ConsumerState<_FilterSheet> {
               error: (e, _) => Text('Error: $e'),
               data: (budgets) {
                 final valid = budgets.any((b) => b.id == _budgetId);
-                return DropdownButtonFormField<int?>(
-                  initialValue: valid ? _budgetId : null,
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All budgets')),
-                    for (final b in budgets)
-                      DropdownMenuItem(value: b.id, child: Text(b.name)),
-                  ],
-                  onChanged: (v) => setState(() => _budgetId = v),
+                if (!valid) _budgetId = null;
+                return PickerFormField<int>(
+                  key: ValueKey(_budgetId),
+                  value: _budgetId ?? noneBudgetId,
+                  placeholder: 'All budgets',
+                  labelBuilder: (id) => id == noneBudgetId
+                      ? 'All budgets'
+                      : budgets.where((b) => b.id == id).first.name,
+                  onTap: (context) => Navigator.of(context).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) => const BudgetPickerScreen(
+                        currencyId: null,
+                        noneLabel: 'All budgets',
+                      ),
+                    ),
+                  ),
+                  onChanged: (v) =>
+                      setState(() => _budgetId = v == noneBudgetId ? null : v),
                 );
               },
             ),
@@ -460,16 +492,12 @@ class _DaySection extends ConsumerWidget {
         : null;
     final net = singleCurrency == null
         ? null
-        : entries
-              .where((e) => e.entry.kind == LedgerKind.transaction)
-              .fold<int>(
-                0,
-                (sum, e) =>
-                    sum +
-                    (e.entry.signType == 'in'
-                        ? e.entry.amount
-                        : -e.entry.amount),
-              );
+        : entries.fold<int>(
+            0,
+            (sum, e) =>
+                sum +
+                (e.entry.signType == 'in' ? e.entry.amount : -e.entry.amount),
+          );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
