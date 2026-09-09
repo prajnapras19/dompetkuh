@@ -11,22 +11,10 @@ import '../db/database.dart';
 /// existing sortOrder rather than re-sorting alphabetically, since unlike
 /// Categories/Accounts there's no on-device evidence of how the reference
 /// app would order a currency list.
-/// Sentinel returned for the "All currencies" entry (only shown when
-/// [CurrencyPickerScreen.showAllOption] is true, e.g. the Transactions tab's
-/// filter sheet) — a distinct, explicit "clear the filter" choice, as
-/// opposed to backing out with no selection (a real `null`). Currency ids
-/// are Drift autoincrement primary keys, so 0 is never a real one.
-const allCurrenciesId = 0;
-
 class CurrencyPickerScreen extends StatelessWidget {
   final List<Currency> currencies;
-  final bool showAllOption;
 
-  const CurrencyPickerScreen({
-    super.key,
-    required this.currencies,
-    this.showAllOption = false,
-  });
+  const CurrencyPickerScreen({super.key, required this.currencies});
 
   @override
   Widget build(BuildContext context) {
@@ -34,12 +22,6 @@ class CurrencyPickerScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Select Currency')),
       body: ListView(
         children: [
-          if (showAllOption)
-            ListTile(
-              leading: const Icon(Icons.clear_all, color: Colors.grey),
-              title: const Text('All currencies'),
-              onTap: () => Navigator.of(context).pop(allCurrenciesId),
-            ),
           for (final currency in currencies)
             ListTile(
               leading: CircleAvatar(

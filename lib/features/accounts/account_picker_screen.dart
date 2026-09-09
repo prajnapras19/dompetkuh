@@ -6,13 +6,6 @@ import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
 import 'account_form_screen.dart';
 
-/// Sentinel returned for the "All accounts" entry (only shown when
-/// [AccountPickerScreen.showAllOption] is true, e.g. the Transactions tab's
-/// filter sheet) — a distinct, explicit "clear the filter" choice, as
-/// opposed to backing out with no selection (a real `null`). Account ids
-/// are Drift autoincrement primary keys, so 0 is never a real one.
-const allAccountsId = 0;
-
 /// Full-page account picker matching the reference app's Pilih Rekening
 /// screen — alphabetical by name with each account's live balance shown
 /// underneath, a different order than the drag-reorderable Manage Accounts
@@ -21,13 +14,8 @@ const allAccountsId = 0;
 /// this so you can't transfer to the same account you're sending from).
 class AccountPickerScreen extends ConsumerWidget {
   final int? excludeId;
-  final bool showAllOption;
 
-  const AccountPickerScreen({
-    super.key,
-    this.excludeId,
-    this.showAllOption = false,
-  });
+  const AccountPickerScreen({super.key, this.excludeId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -54,7 +42,7 @@ class AccountPickerScreen extends ConsumerWidget {
                     b.account.name.toLowerCase(),
                   ),
                 );
-          if (sorted.isEmpty && !showAllOption) {
+          if (sorted.isEmpty) {
             return const Center(
               child: Text(
                 'No accounts yet — tap + to add one.',
@@ -64,12 +52,6 @@ class AccountPickerScreen extends ConsumerWidget {
           }
           return ListView(
             children: [
-              if (showAllOption)
-                ListTile(
-                  leading: const Icon(Icons.clear_all, color: Colors.grey),
-                  title: const Text('All accounts'),
-                  onTap: () => Navigator.of(context).pop(allAccountsId),
-                ),
               for (final account in sorted)
                 ListTile(
                   leading: IconTile(

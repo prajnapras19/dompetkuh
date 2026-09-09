@@ -5,41 +5,31 @@ import 'package:intl/intl.dart';
 
 import '../../models/global_ledger_entry.dart';
 import '../../models/ledger_entry.dart';
-import '../../providers/account_providers.dart';
-import '../../providers/budget_providers.dart';
-import '../../providers/category_providers.dart';
-import '../../providers/currency_providers.dart';
 import '../../providers/transaction_providers.dart';
 import '../../providers/transfer_providers.dart';
-import '../../widgets/currency_picker_screen.dart';
+import '../../utils/report_period.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
-import '../../widgets/picker_form_field.dart';
-import '../accounts/account_picker_screen.dart';
-import '../budgets/budget_picker_screen.dart';
-import '../categories/category_picker_screen.dart';
+import '../../widgets/period_pager.dart';
 import '../transfers/add_transfer_screen.dart';
 import 'transaction_detail_screen.dart';
+import 'transaction_filter_screen.dart';
 import 'transaction_search_screen.dart';
 
 /// Home tab: every transaction + transfer across all accounts for the
-/// selected month, day-grouped, matching the reference app's Transaksi
+/// selected period, day-grouped, matching the reference app's Transaksi
 /// screen. Per-currency income/expense/total summary (never blended across
 /// currencies). Also reachable pushed (with a back button) from Reports'
 /// category drill-down, via the initial* params.
 class TransactionsTab extends ConsumerStatefulWidget {
   final DateTime? initialMonth;
-  final int? initialAccountId;
   final int? initialCategoryId;
-  final int? initialBudgetId;
   final int? initialCurrencyId;
 
   const TransactionsTab({
     super.key,
     this.initialMonth,
-    this.initialAccountId,
     this.initialCategoryId,
-    this.initialBudgetId,
     this.initialCurrencyId,
   });
 
@@ -48,30 +38,42 @@ class TransactionsTab extends ConsumerStatefulWidget {
 }
 
 class _TransactionsTabState extends ConsumerState<TransactionsTab> {
-  late DateTime _month = widget.initialMonth != null
-      ? DateTime(widget.initialMonth!.year, widget.initialMonth!.month)
-      : DateTime(DateTime.now().year, DateTime.now().month);
-  late int? _accountId = widget.initialAccountId;
-  late int? _categoryId = widget.initialCategoryId;
-  late int? _budgetId = widget.initialBudgetId;
-  late int? _currencyId = widget.initialCurrencyId;
+  late ReportPeriod _period = ReportPeriod.monthly(widget.initialMonth);
+  // A drill-down pin (see LedgerFilter) — separate from the exclude-based
+  // checklists the Filter screen edits, and cleared once that screen is
+  // used, since it supersedes a narrow drill-down with a general filter.
+  late int? _onlyCategoryId = widget.initialCategoryId;
+  late int? _onlyCurrencyId = widget.initialCurrencyId;
+  Set<int> _excludedAccountIds = {};
+  Set<int> _excludedCategoryIds = {};
+  Set<int> _excludedBudgetIds = {};
+  Set<int> _excludedCurrencyIds = {};
+  bool _includeTransfers = true;
 
   bool get _hasFilter =>
-      _accountId != null ||
-      _categoryId != null ||
-      _budgetId != null ||
-      _currencyId != null;
+      _onlyCategoryId != null ||
+      _onlyCurrencyId != null ||
+      _excludedAccountIds.isNotEmpty ||
+      _excludedCategoryIds.isNotEmpty ||
+      _excludedBudgetIds.isNotEmpty ||
+      _excludedCurrencyIds.isNotEmpty ||
+      !_includeTransfers;
 
   @override
   Widget build(BuildContext context) {
+    final (start, end) = _period.range;
     final filter = (
-      month: _month,
-      accountId: _accountId,
-      categoryId: _categoryId,
-      budgetId: _budgetId,
-      currencyId: _currencyId,
+      start: start,
+      end: end,
+      excludedAccountIds: _excludedAccountIds,
+      excludedCategoryIds: _excludedCategoryIds,
+      excludedBudgetIds: _excludedBudgetIds,
+      excludedCurrencyIds: _excludedCurrencyIds,
+      includeTransfers: _includeTransfers,
+      onlyCategoryId: _onlyCategoryId,
+      onlyCurrencyId: _onlyCurrencyId,
     );
-    final entriesAsync = ref.watch(globalLedgerInMonthProvider(filter));
+    final entriesAsync = ref.watch(globalLedgerProvider(filter));
 
     return Scaffold(
       appBar: AppBar(
@@ -90,15 +92,15 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
             icon: Icon(_hasFilter ? Icons.filter_alt : Icons.filter_alt_outlined),
             color: _hasFilter ? Theme.of(context).colorScheme.primary : null,
             tooltip: 'Filter',
-            onPressed: _openFilterSheet,
+            onPressed: _openFilterScreen,
           ),
         ],
       ),
       body: Column(
         children: [
-          _MonthPager(
-            month: _month,
-            onChanged: (m) => setState(() => _month = m),
+          PeriodPager(
+            period: _period,
+            onChanged: (p) => setState(() => _period = p),
           ),
           if (_hasFilter)
             Padding(
@@ -106,12 +108,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => setState(() {
-                    _accountId = null;
-                    _categoryId = null;
-                    _budgetId = null;
-                    _currencyId = null;
-                  }),
+                  onPressed: _clearFilter,
                   icon: const Icon(Icons.close, size: 16),
                   label: const Text('Clear filter'),
                 ),
@@ -163,252 +160,45 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
     );
   }
 
-  Future<void> _openFilterSheet() async {
-    final result = await showModalBottomSheet<_FilterResult>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => _FilterSheet(
-        accountId: _accountId,
-        categoryId: _categoryId,
-        budgetId: _budgetId,
-        currencyId: _currencyId,
+  Future<void> _openFilterScreen() async {
+    final result = await Navigator.of(context).push<TransactionFilterResult>(
+      MaterialPageRoute(
+        builder: (_) => TransactionFilterScreen(
+          period: _period,
+          excludedAccountIds: _excludedAccountIds,
+          excludedCategoryIds: _excludedCategoryIds,
+          excludedBudgetIds: _excludedBudgetIds,
+          excludedCurrencyIds: _excludedCurrencyIds,
+          includeTransfers: _includeTransfers,
+        ),
       ),
     );
     if (result != null) {
       setState(() {
-        _accountId = result.accountId;
-        _categoryId = result.categoryId;
-        _budgetId = result.budgetId;
-        _currencyId = result.currencyId;
+        _period = result.period;
+        _excludedAccountIds = result.excludedAccountIds;
+        _excludedCategoryIds = result.excludedCategoryIds;
+        _excludedBudgetIds = result.excludedBudgetIds;
+        _excludedCurrencyIds = result.excludedCurrencyIds;
+        _includeTransfers = result.includeTransfers;
+        // A general filter supersedes a narrower drill-down pin.
+        _onlyCategoryId = null;
+        _onlyCurrencyId = null;
       });
     }
   }
-}
 
-typedef _FilterResult = ({
-  int? accountId,
-  int? categoryId,
-  int? budgetId,
-  int? currencyId,
-});
-
-class _FilterSheet extends ConsumerStatefulWidget {
-  final int? accountId;
-  final int? categoryId;
-  final int? budgetId;
-  final int? currencyId;
-
-  const _FilterSheet({
-    this.accountId,
-    this.categoryId,
-    this.budgetId,
-    this.currencyId,
-  });
-
-  @override
-  ConsumerState<_FilterSheet> createState() => _FilterSheetState();
-}
-
-class _FilterSheetState extends ConsumerState<_FilterSheet> {
-  late int? _accountId = widget.accountId;
-  late int? _categoryId = widget.categoryId;
-  late int? _budgetId = widget.budgetId;
-  late int? _currencyId = widget.currencyId;
-
-  @override
-  Widget build(BuildContext context) {
-    final accountsAsync = ref.watch(accountSummariesProvider);
-    final categoriesInAsync = ref.watch(categoriesByTypeProvider('in'));
-    final categoriesOutAsync = ref.watch(categoriesByTypeProvider('out'));
-    final budgetsAsync = ref.watch(activeBudgetsProvider);
-    final currenciesAsync = ref.watch(activeCurrenciesProvider);
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Filter transactions',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            const Text('ACCOUNT', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            accountsAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Error: $e'),
-              data: (accounts) => PickerFormField<int>(
-                key: ValueKey(_accountId),
-                value: _accountId ?? allAccountsId,
-                placeholder: 'All accounts',
-                labelBuilder: (id) => id == allAccountsId
-                    ? 'All accounts'
-                    : accounts.where((a) => a.account.id == id).first.account.name,
-                onTap: (context) => Navigator.of(context).push<int>(
-                  MaterialPageRoute(
-                    builder: (_) => const AccountPickerScreen(showAllOption: true),
-                  ),
-                ),
-                onChanged: (v) =>
-                    setState(() => _accountId = v == allAccountsId ? null : v),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('CATEGORY', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            categoriesInAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Error: $e'),
-              data: (inCategories) => categoriesOutAsync.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('Error: $e'),
-                data: (outCategories) {
-                  final categories = [...inCategories, ...outCategories];
-                  final valid = categories.any((c) => c.id == _categoryId);
-                  if (!valid) _categoryId = null;
-                  return PickerFormField<int>(
-                    key: ValueKey(_categoryId),
-                    value: _categoryId ?? allCategoriesId,
-                    placeholder: 'All categories',
-                    labelBuilder: (id) => id == allCategoriesId
-                        ? 'All categories'
-                        : categories.where((c) => c.id == id).first.name,
-                    onTap: (context) => Navigator.of(context).push<int>(
-                      MaterialPageRoute(
-                        builder: (_) => const CategoryPickerScreen(
-                          type: null,
-                          showAllOption: true,
-                        ),
-                      ),
-                    ),
-                    onChanged: (v) => setState(
-                      () => _categoryId = v == allCategoriesId ? null : v,
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('CURRENCY', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            currenciesAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Error: $e'),
-              data: (currencies) => PickerFormField<int>(
-                key: ValueKey(_currencyId),
-                value: _currencyId ?? allCurrenciesId,
-                placeholder: 'All currencies',
-                labelBuilder: (id) => id == allCurrenciesId
-                    ? 'All currencies'
-                    : currencies.where((c) => c.id == id).first.code,
-                onTap: (context) => Navigator.of(context).push<int>(
-                  MaterialPageRoute(
-                    builder: (_) => CurrencyPickerScreen(
-                      currencies: currencies,
-                      showAllOption: true,
-                    ),
-                  ),
-                ),
-                onChanged: (v) =>
-                    setState(() => _currencyId = v == allCurrenciesId ? null : v),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('BUDGET', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            budgetsAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Error: $e'),
-              data: (budgets) {
-                final valid = budgets.any((b) => b.id == _budgetId);
-                if (!valid) _budgetId = null;
-                return PickerFormField<int>(
-                  key: ValueKey(_budgetId),
-                  value: _budgetId ?? noneBudgetId,
-                  placeholder: 'All budgets',
-                  labelBuilder: (id) => id == noneBudgetId
-                      ? 'All budgets'
-                      : budgets.where((b) => b.id == id).first.name,
-                  onTap: (context) => Navigator.of(context).push<int>(
-                    MaterialPageRoute(
-                      builder: (_) => const BudgetPickerScreen(
-                        currencyId: null,
-                        noneLabel: 'All budgets',
-                      ),
-                    ),
-                  ),
-                  onChanged: (v) =>
-                      setState(() => _budgetId = v == noneBudgetId ? null : v),
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop((
-                      accountId: null,
-                      categoryId: null,
-                      budgetId: null,
-                      currencyId: null,
-                    )),
-                    child: const Text('CLEAR'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop((
-                      accountId: _accountId,
-                      categoryId: _categoryId,
-                      budgetId: _budgetId,
-                      currencyId: _currencyId,
-                    )),
-                    child: const Text('APPLY'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MonthPager extends StatelessWidget {
-  final DateTime month;
-  final ValueChanged<DateTime> onChanged;
-
-  const _MonthPager({required this.month, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => onChanged(DateTime(month.year, month.month - 1)),
-          ),
-          Text(
-            DateFormat('MMMM yyyy').format(month),
-            style: const TextStyle(fontSize: 16),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => onChanged(DateTime(month.year, month.month + 1)),
-          ),
-        ],
-      ),
-    );
+  void _clearFilter() {
+    setState(() {
+      _period = ReportPeriod.monthly();
+      _excludedAccountIds = {};
+      _excludedCategoryIds = {};
+      _excludedBudgetIds = {};
+      _excludedCurrencyIds = {};
+      _includeTransfers = true;
+      _onlyCategoryId = null;
+      _onlyCurrencyId = null;
+    });
   }
 }
 
