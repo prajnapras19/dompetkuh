@@ -10,6 +10,9 @@ import '../../theme/colors.dart';
 import '../../utils/formatters.dart';
 import '../../utils/thousands_input_formatter.dart';
 import '../../widgets/form_helpers.dart';
+import '../../widgets/icon_tile.dart';
+import '../../widgets/picker_form_field.dart';
+import '../accounts/account_picker_screen.dart';
 
 /// Add or edit a transfer between two accounts. Same-currency transfers
 /// auto-fill "amount received" to match "amount sent" (still editable, e.g.
@@ -87,22 +90,21 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
             );
           }
 
-          _fromAccountId ??= accounts.first.account.id;
-          _toAccountId ??= accounts
-              .firstWhere((a) => a.account.id != _fromAccountId)
-              .account
-              .id;
-
-          final fromAccount = accounts.firstWhere(
-            (a) => a.account.id == _fromAccountId,
-          );
-          final toAccount = accounts.firstWhere(
-            (a) => a.account.id == _toAccountId,
-          );
+          final fromAccount = accounts
+              .where((a) => a.account.id == _fromAccountId)
+              .firstOrNull;
+          final toAccount = accounts
+              .where((a) => a.account.id == _toAccountId)
+              .firstOrNull;
           final sameCurrency =
+              fromAccount != null &&
+              toAccount != null &&
               fromAccount.currency.id == toAccount.currency.id;
 
-          if (_fromAmountController.text.isEmpty && widget.transfer != null) {
+          if (_fromAmountController.text.isEmpty &&
+              widget.transfer != null &&
+              fromAccount != null &&
+              toAccount != null) {
             _fromAmountController.text = Money.formatEditable(
               widget.transfer!.fromAmount,
               fromAccount.currency,
@@ -124,30 +126,62 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
               ),
               children: [
                 const FormCaption('FROM ACCOUNT'),
-                _AccountDropdown(
-                  accounts: accounts,
+                PickerFormField<int>(
+                  key: ValueKey('from_$_fromAccountId'),
                   value: _fromAccountId,
+                  placeholder: 'Select account',
+                  labelBuilder: (id) =>
+                      accounts.where((a) => a.account.id == id).first.account.name,
+                  leadingBuilder: (id) {
+                    final a = accounts.where((a) => a.account.id == id).first;
+                    return IconTile(
+                      iconKey: a.account.icon,
+                      colorValue: a.account.color,
+                      size: 32,
+                    );
+                  },
+                  onTap: (context) => Navigator.of(context).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) => const AccountPickerScreen(),
+                    ),
+                  ),
                   onChanged: (v) => setState(() {
                     _fromAccountId = v;
-                    if (v == _toAccountId) {
-                      _toAccountId = accounts
-                          .firstWhere((a) => a.account.id != v)
-                          .account
-                          .id;
-                    }
+                    if (v == _toAccountId) _toAccountId = null;
                   }),
+                  validator: (v) => v == null ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
                 const FormCaption('TO ACCOUNT'),
-                _AccountDropdown(
-                  accounts: accounts,
+                PickerFormField<int>(
+                  key: ValueKey('to_${_toAccountId}_$_fromAccountId'),
                   value: _toAccountId,
-                  excludeId: _fromAccountId,
+                  placeholder: 'Select account',
+                  labelBuilder: (id) =>
+                      accounts.where((a) => a.account.id == id).first.account.name,
+                  leadingBuilder: (id) {
+                    final a = accounts.where((a) => a.account.id == id).first;
+                    return IconTile(
+                      iconKey: a.account.icon,
+                      colorValue: a.account.color,
+                      size: 32,
+                    );
+                  },
+                  onTap: (context) => Navigator.of(context).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          AccountPickerScreen(excludeId: _fromAccountId),
+                    ),
+                  ),
                   onChanged: (v) => setState(() => _toAccountId = v),
+                  validator: (v) => v == null ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
-                FormCaption('AMOUNT SENT (${fromAccount.currency.code})'),
-                if (fromAccount.currency.decimalPlaces > 0)
+                FormCaption(
+                  'AMOUNT SENT'
+                  '${fromAccount == null ? '' : ' (${fromAccount.currency.code})'}',
+                ),
+                if (fromAccount != null && fromAccount.currency.decimalPlaces > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
@@ -162,10 +196,14 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                   ),
                   inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
-                    hintText: fromAccount.currency.decimalPlaces == 0
+                    hintText: fromAccount == null
+                        ? '0'
+                        : fromAccount.currency.decimalPlaces == 0
                         ? '0'
                         : '0.${'0' * fromAccount.currency.decimalPlaces}',
-                    prefixText: '${fromAccount.currency.symbol} ',
+                    prefixText: fromAccount == null
+                        ? null
+                        : '${fromAccount.currency.symbol} ',
                   ),
                   onChanged: (v) {
                     if (sameCurrency && !_toAmountEditedManually) {
@@ -174,6 +212,7 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                   },
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Required';
+                    if (fromAccount == null) return null;
                     final parsed = Money.parse(v, fromAccount.currency);
                     if (parsed == null) return 'Invalid amount';
                     if (parsed <= 0) return 'Must be greater than zero';
@@ -181,8 +220,11 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                FormCaption('AMOUNT RECEIVED (${toAccount.currency.code})'),
-                if (toAccount.currency.decimalPlaces > 0)
+                FormCaption(
+                  'AMOUNT RECEIVED'
+                  '${toAccount == null ? '' : ' (${toAccount.currency.code})'}',
+                ),
+                if (toAccount != null && toAccount.currency.decimalPlaces > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
@@ -197,22 +239,33 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                   ),
                   inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
-                    hintText: toAccount.currency.decimalPlaces == 0
+                    hintText: toAccount == null
+                        ? '0'
+                        : toAccount.currency.decimalPlaces == 0
                         ? '0'
                         : '0.${'0' * toAccount.currency.decimalPlaces}',
-                    prefixText: '${toAccount.currency.symbol} ',
+                    prefixText: toAccount == null
+                        ? null
+                        : '${toAccount.currency.symbol} ',
                   ),
                   onChanged: (_) =>
                       setState(() => _toAmountEditedManually = true),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Required';
+                    if (toAccount == null) return null;
                     final parsed = Money.parse(v, toAccount.currency);
                     if (parsed == null) return 'Invalid amount';
                     if (parsed <= 0) return 'Must be greater than zero';
                     return null;
                   },
                 ),
-                if (!sameCurrency) _RateHint(from: fromAccount, to: toAccount, fromText: _fromAmountController.text, toText: _toAmountController.text),
+                if (!sameCurrency && fromAccount != null && toAccount != null)
+                  _RateHint(
+                    from: fromAccount,
+                    to: toAccount,
+                    fromText: _fromAmountController.text,
+                    toText: _toAmountController.text,
+                  ),
                 const SizedBox(height: 16),
                 const FormCaption('NOTE (OPTIONAL)'),
                 TextFormField(controller: _noteController),
@@ -252,9 +305,7 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton(
-                  onPressed: _saving
-                      ? null
-                      : () => _save(fromAccount.currency, toAccount.currency),
+                  onPressed: _saving ? null : () => _save(accounts),
                   child: const Text('SAVE'),
                 ),
                 if (_isEditing) ...[
@@ -276,8 +327,15 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
     );
   }
 
-  Future<void> _save(Currency fromCurrency, Currency toCurrency) async {
+  Future<void> _save(List<AccountSummary> accounts) async {
     if (!_formKey.currentState!.validate()) return;
+    // The account fields' own validators guarantee both ids are set by now.
+    final fromCurrency = accounts
+        .firstWhere((a) => a.account.id == _fromAccountId)
+        .currency;
+    final toCurrency = accounts
+        .firstWhere((a) => a.account.id == _toAccountId)
+        .currency;
     final fromAmount = Money.parse(_fromAmountController.text, fromCurrency)!;
     final toAmount = Money.parse(_toAmountController.text, toCurrency)!;
     setState(() => _saving = true);
@@ -335,38 +393,6 @@ class _AddTransferScreenState extends ConsumerState<AddTransferScreen> {
     if (confirmed != true) return;
     await ref.read(transferRepositoryProvider).delete(widget.transfer!.id);
     if (mounted) Navigator.of(context).pop();
-  }
-}
-
-class _AccountDropdown extends StatelessWidget {
-  final List<AccountSummary> accounts;
-  final int? value;
-  final int? excludeId;
-  final ValueChanged<int?> onChanged;
-
-  const _AccountDropdown({
-    required this.accounts,
-    required this.value,
-    required this.onChanged,
-    this.excludeId,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final options = accounts.where((a) => a.account.id != excludeId).toList();
-    return DropdownButtonFormField<int>(
-      initialValue: options.any((a) => a.account.id == value)
-          ? value
-          : options.first.account.id,
-      items: [
-        for (final a in options)
-          DropdownMenuItem(
-            value: a.account.id,
-            child: Text('${a.account.name} (${a.currency.code})'),
-          ),
-      ],
-      onChanged: onChanged,
-    );
   }
 }
 
