@@ -10,6 +10,7 @@ import '../../utils/report_period.dart';
 import '../../widgets/currency_picker_screen.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
+import '../../widgets/period_pager.dart';
 import '../../widgets/picker_form_field.dart';
 import '../transactions/transactions_tab.dart';
 
@@ -83,7 +84,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 onChanged: (v) => setState(() => _currencyId = v),
               ),
               const SizedBox(height: 8),
-              _PeriodPager(
+              PeriodPager(
                 period: _period,
                 onChanged: (p) => setState(() => _period = p),
               ),
@@ -174,35 +175,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           setState(() => _period = ReportPeriod.custom(range.start, range.end));
         }
     }
-  }
-}
-
-class _PeriodPager extends StatelessWidget {
-  final ReportPeriod period;
-  final ValueChanged<ReportPeriod> onChanged;
-  const _PeriodPager({required this.period, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    if (!period.canPage) {
-      return Center(
-        child: Text(period.label, style: const TextStyle(fontSize: 16)),
-      );
-    }
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left),
-          onPressed: () => onChanged(period.previous()),
-        ),
-        Text(period.label, style: const TextStyle(fontSize: 16)),
-        IconButton(
-          icon: const Icon(Icons.chevron_right),
-          onPressed: () => onChanged(period.next()),
-        ),
-      ],
-    );
   }
 }
 
