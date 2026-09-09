@@ -52,50 +52,99 @@ Currency _readLedgerCurrency(QueryRow row) => Currency(
   archivedAt: row.readNullable<DateTime>('cur_archived_at'),
 );
 
-/// Filters for [globalLedgerInMonthProvider]. categoryId/budgetId exclude
-/// transfers entirely (transfers have neither) — accountId/currencyId still
-/// include transfers, matching either leg's account/currency.
+/// Builds ` AND column NOT IN (?, ?, ...)`, appending placeholders'
+/// variables to [variables] — empty [excluded] means no restriction, so no
+/// clause is added at all (matching the filter screen's "all checked by
+/// default" checklists).
+String _excludeClause(
+  String column,
+  Set<int> excluded,
+  List<Variable> variables,
+) {
+  if (excluded.isEmpty) return '';
+  variables.addAll(excluded.map(Variable.withInt));
+  final placeholders = List.filled(excluded.length, '?').join(', ');
+  return ' AND $column NOT IN ($placeholders)';
+}
+
+/// Filters for [globalLedgerProvider]. Each `excluded*Ids` set is empty by
+/// default (nothing excluded, matching the filter screen's checklists which
+/// start all-checked) — matches the reference app's Filter screen model of
+/// unchecking items to exclude them, rather than picking one to include.
+/// [start]/[end] bound the date range (both null = all time, [end]
+/// exclusive). Category/Budget exclusion only ever applies to transactions
+/// (transfers have neither by design — see Transfers table rationale in
+/// CLAUDE.md); [includeTransfers] is a separate toggle for them instead,
+/// since there's no sensible per-category equivalent for a transfer leg.
+/// [onlyCategoryId]/[onlyCurrencyId] are a separate hard `= ?` pin (not part
+/// of the exclude checklists) used only by Reports' category drill-down —
+/// "show just this one category" is a different intent than "exclude a few
+/// from the list", and computing it as a checklist exclusion would need the
+/// full category list just to build the complement.
 typedef LedgerFilter = ({
-  DateTime month,
-  int? accountId,
-  int? categoryId,
-  int? budgetId,
-  int? currencyId,
+  DateTime? start,
+  DateTime? end,
+  Set<int> excludedAccountIds,
+  Set<int> excludedCategoryIds,
+  Set<int> excludedBudgetIds,
+  Set<int> excludedCurrencyIds,
+  bool includeTransfers,
+  int? onlyCategoryId,
+  int? onlyCurrencyId,
 });
 
-/// All transactions + transfer legs across every account within one
-/// calendar month, newest first, optionally filtered — feeds the home
-/// Transactions tab. [filter.month] should have day=1.
-final globalLedgerInMonthProvider =
+/// All transactions + transfer legs across every account within a date
+/// range, newest first, optionally filtered — feeds the home Transactions
+/// tab.
+final globalLedgerProvider =
     StreamProvider.family<List<GlobalLedgerEntry>, LedgerFilter>((
       ref,
       filter,
     ) {
       final db = ref.watch(databaseProvider);
-      final start = DateTime(filter.month.year, filter.month.month);
-      final end = DateTime(filter.month.year, filter.month.month + 1);
-      final includeTransfers = filter.categoryId == null && filter.budgetId == null;
 
       final variables = <Variable>[];
       final sql = StringBuffer();
 
-      final txnWhere = StringBuffer('t.date >= ? AND t.date < ?');
-      variables.addAll([Variable.withDateTime(start), Variable.withDateTime(end)]);
-      if (filter.accountId != null) {
-        txnWhere.write(' AND t.account_id = ?');
-        variables.add(Variable.withInt(filter.accountId!));
+      final txnWhere = StringBuffer('1 = 1');
+      if (filter.start != null) {
+        txnWhere.write(' AND t.date >= ?');
+        variables.add(Variable.withDateTime(filter.start!));
       }
-      if (filter.categoryId != null) {
+      if (filter.end != null) {
+        txnWhere.write(' AND t.date < ?');
+        variables.add(Variable.withDateTime(filter.end!));
+      }
+      txnWhere.write(
+        _excludeClause('t.account_id', filter.excludedAccountIds, variables),
+      );
+      txnWhere.write(
+        _excludeClause(
+          't.category_id',
+          filter.excludedCategoryIds,
+          variables,
+        ),
+      );
+      if (filter.excludedBudgetIds.isNotEmpty) {
+        variables.addAll(filter.excludedBudgetIds.map(Variable.withInt));
+        final placeholders = List.filled(
+          filter.excludedBudgetIds.length,
+          '?',
+        ).join(', ');
+        txnWhere.write(
+          ' AND (t.budget_id IS NULL OR t.budget_id NOT IN ($placeholders))',
+        );
+      }
+      txnWhere.write(
+        _excludeClause('cur.id', filter.excludedCurrencyIds, variables),
+      );
+      if (filter.onlyCategoryId != null) {
         txnWhere.write(' AND t.category_id = ?');
-        variables.add(Variable.withInt(filter.categoryId!));
+        variables.add(Variable.withInt(filter.onlyCategoryId!));
       }
-      if (filter.budgetId != null) {
-        txnWhere.write(' AND t.budget_id = ?');
-        variables.add(Variable.withInt(filter.budgetId!));
-      }
-      if (filter.currencyId != null) {
+      if (filter.onlyCurrencyId != null) {
         txnWhere.write(' AND cur.id = ?');
-        variables.add(Variable.withInt(filter.currencyId!));
+        variables.add(Variable.withInt(filter.onlyCurrencyId!));
       }
 
       sql.write('''
@@ -109,53 +158,63 @@ final globalLedgerInMonthProvider =
         WHERE $txnWhere
       ''');
 
-      if (includeTransfers) {
-        final transferClause = StringBuffer();
-        if (filter.accountId != null) transferClause.write(' AND a.id = ?');
-        if (filter.currencyId != null) transferClause.write(' AND cur.id = ?');
+      // A category pin means "only this category's transactions" — transfers
+      // have no category, so they can never match and are skipped entirely
+      // (same as when excludedCategoryIds made a category filter active
+      // before this typedef grew the separate onlyCategoryId pin).
+      if (filter.includeTransfers && filter.onlyCategoryId == null) {
+        for (final (kind, sign, amountCol, joinCol, otherCol, otherAlias, label)
+            in [
+              (
+                'transfer_out',
+                'out',
+                'from_amount',
+                'from_account_id',
+                'to_account_id',
+                'dest',
+                'Transfer to ',
+              ),
+              (
+                'transfer_in',
+                'in',
+                'to_amount',
+                'to_account_id',
+                'from_account_id',
+                'src',
+                'Transfer from ',
+              ),
+            ]) {
+          final transferWhere = StringBuffer('1 = 1');
+          if (filter.start != null) {
+            transferWhere.write(' AND tr.date >= ?');
+            variables.add(Variable.withDateTime(filter.start!));
+          }
+          if (filter.end != null) {
+            transferWhere.write(' AND tr.date < ?');
+            variables.add(Variable.withDateTime(filter.end!));
+          }
+          transferWhere.write(
+            _excludeClause('a.id', filter.excludedAccountIds, variables),
+          );
+          transferWhere.write(
+            _excludeClause('cur.id', filter.excludedCurrencyIds, variables),
+          );
+          if (filter.onlyCurrencyId != null) {
+            transferWhere.write(' AND cur.id = ?');
+            variables.add(Variable.withInt(filter.onlyCurrencyId!));
+          }
 
-        sql.write('''
-          UNION ALL
-          SELECT 'transfer_out' AS kind, tr.id AS id, tr.date AS date, 'out' AS sign_type,
-            tr.from_amount AS amount, 'transfer' AS icon, NULL AS color,
-            'Transfer to ' || dest.name AS title, tr.note AS note, $_globalLedgerColumns
-          FROM transfers tr
-          INNER JOIN accounts a ON a.id = tr.from_account_id
-          INNER JOIN accounts dest ON dest.id = tr.to_account_id
-          INNER JOIN currencies cur ON cur.id = a.currency_id
-          WHERE tr.date >= ? AND tr.date < ?$transferClause
-        ''');
-        variables.addAll([
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-        ]);
-        if (filter.accountId != null) {
-          variables.add(Variable.withInt(filter.accountId!));
-        }
-        if (filter.currencyId != null) {
-          variables.add(Variable.withInt(filter.currencyId!));
-        }
-
-        sql.write('''
-          UNION ALL
-          SELECT 'transfer_in' AS kind, tr.id AS id, tr.date AS date, 'in' AS sign_type,
-            tr.to_amount AS amount, 'transfer' AS icon, NULL AS color,
-            'Transfer from ' || src.name AS title, tr.note AS note, $_globalLedgerColumns
-          FROM transfers tr
-          INNER JOIN accounts a ON a.id = tr.to_account_id
-          INNER JOIN accounts src ON src.id = tr.from_account_id
-          INNER JOIN currencies cur ON cur.id = a.currency_id
-          WHERE tr.date >= ? AND tr.date < ?$transferClause
-        ''');
-        variables.addAll([
-          Variable.withDateTime(start),
-          Variable.withDateTime(end),
-        ]);
-        if (filter.accountId != null) {
-          variables.add(Variable.withInt(filter.accountId!));
-        }
-        if (filter.currencyId != null) {
-          variables.add(Variable.withInt(filter.currencyId!));
+          sql.write('''
+            UNION ALL
+            SELECT '$kind' AS kind, tr.id AS id, tr.date AS date, '$sign' AS sign_type,
+              tr.$amountCol AS amount, 'transfer' AS icon, NULL AS color,
+              '$label' || $otherAlias.name AS title, tr.note AS note, $_globalLedgerColumns
+            FROM transfers tr
+            INNER JOIN accounts a ON a.id = tr.$joinCol
+            INNER JOIN accounts $otherAlias ON $otherAlias.id = tr.$otherCol
+            INNER JOIN currencies cur ON cur.id = a.currency_id
+            WHERE $transferWhere
+          ''');
         }
       }
 
