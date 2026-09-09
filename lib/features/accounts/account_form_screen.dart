@@ -6,7 +6,9 @@ import '../../db/database.dart';
 import '../../providers/account_providers.dart';
 import '../../providers/currency_providers.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/currency_picker_screen.dart';
 import '../../widgets/icon_picker_field.dart';
+import '../../widgets/picker_form_field.dart';
 
 /// Create or edit an account. [account] null = create.
 class AccountFormScreen extends ConsumerStatefulWidget {
@@ -130,15 +132,23 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
                 ),
                 const SizedBox(height: 16),
                 const _Caption('CURRENCY'),
-                DropdownButtonFormField<int>(
-                  initialValue: _currencyId,
-                  items: [
-                    for (final c in currencies)
-                      DropdownMenuItem(value: c.id, child: Text('${c.code} — ${c.name}')),
-                  ],
-                  onChanged: _locked
-                      ? null
-                      : (v) => setState(() => _currencyId = v),
+                PickerFormField<int>(
+                  key: ValueKey(_currencyId),
+                  value: _currencyId,
+                  placeholder: 'Select currency',
+                  labelBuilder: (id) {
+                    final c = currencies.firstWhere((c) => c.id == id);
+                    return '${c.code} — ${c.name}';
+                  },
+                  onTap: _locked
+                      ? (context) async => null
+                      : (context) => Navigator.of(context).push<int>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                CurrencyPickerScreen(currencies: currencies),
+                          ),
+                        ),
+                  onChanged: (v) => setState(() => _currencyId = v),
                 ),
                 if (_locked)
                   const Padding(
@@ -192,7 +202,9 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
         ? 0
         : Money.parse(_balanceController.text, currency) ?? 0;
 
+    int id;
     if (_isEditing) {
+      id = widget.account!.id;
       await repo.update(
         widget.account!.copyWith(
           name: _nameController.text.trim(),
@@ -202,7 +214,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
         ),
       );
     } else {
-      await repo.create(
+      id = await repo.create(
         AccountsCompanion.insert(
           name: _nameController.text.trim(),
           icon: Value(_iconKey),
@@ -214,7 +226,9 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
       );
     }
 
-    if (mounted) Navigator.of(context).pop();
+    // Returns the saved account's id so a picker screen that pushed this
+    // form for a quick-add can select it immediately.
+    if (mounted) Navigator.of(context).pop(id);
   }
 
   Future<void> _handleAction(String action) async {

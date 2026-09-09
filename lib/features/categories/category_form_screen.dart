@@ -108,7 +108,9 @@ class _CategoryFormScreenState extends ConsumerState<CategoryFormScreen> {
     setState(() => _saving = true);
     final repo = ref.read(categoryRepositoryProvider);
 
+    int id;
     if (_isEditing) {
+      id = widget.category!.id;
       await repo.update(
         widget.category!.copyWith(
           name: _nameController.text.trim(),
@@ -118,7 +120,7 @@ class _CategoryFormScreenState extends ConsumerState<CategoryFormScreen> {
         ),
       );
     } else {
-      await repo.create(
+      id = await repo.create(
         CategoriesCompanion.insert(
           name: _nameController.text.trim(),
           type: _type,
@@ -128,7 +130,9 @@ class _CategoryFormScreenState extends ConsumerState<CategoryFormScreen> {
       );
     }
 
-    if (mounted) Navigator.of(context).pop();
+    // Returns the saved category's id so a picker screen that pushed this
+    // form for a quick-add can select it immediately.
+    if (mounted) Navigator.of(context).pop(id);
   }
 }
 

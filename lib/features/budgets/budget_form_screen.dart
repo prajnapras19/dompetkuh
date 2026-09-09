@@ -8,8 +8,10 @@ import '../../providers/budget_providers.dart';
 import '../../providers/currency_providers.dart';
 import '../../utils/formatters.dart';
 import '../../utils/thousands_input_formatter.dart';
+import '../../widgets/currency_picker_screen.dart';
 import '../../widgets/form_helpers.dart';
 import '../../widgets/icon_picker_field.dart';
+import '../../widgets/picker_form_field.dart';
 
 /// Create or edit a budget tag. [budget] null = create.
 ///
@@ -133,15 +135,20 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
                 ),
                 const SizedBox(height: 16),
                 const FormCaption('CURRENCY'),
-                DropdownButtonFormField<int>(
-                  initialValue: currency.id,
-                  items: [
-                    for (final c in currencies)
-                      DropdownMenuItem(
-                        value: c.id,
-                        child: Text('${c.code} — ${c.name}'),
-                      ),
-                  ],
+                PickerFormField<int>(
+                  key: ValueKey(_currencyId),
+                  value: currency.id,
+                  placeholder: 'Select currency',
+                  labelBuilder: (id) {
+                    final c = currencies.firstWhere((c) => c.id == id);
+                    return '${c.code} — ${c.name}';
+                  },
+                  onTap: (context) => Navigator.of(context).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          CurrencyPickerScreen(currencies: currencies),
+                    ),
+                  ),
                   onChanged: (v) => setState(() {
                     _currencyId = v;
                     _amountController.clear();
@@ -230,6 +237,8 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
     }
     await repo.setAmountEffectiveFrom(budgetId, _thisMonth, amount);
 
-    if (mounted) Navigator.of(context).pop();
+    // Returns the saved budget's id so a picker screen that pushed this
+    // form for a quick-add can select it immediately.
+    if (mounted) Navigator.of(context).pop(budgetId);
   }
 }
