@@ -20,6 +20,7 @@ import '../budgets/budget_picker_screen.dart';
 import '../categories/category_picker_screen.dart';
 import '../transfers/add_transfer_screen.dart';
 import 'transaction_detail_screen.dart';
+import 'transaction_search_screen.dart';
 
 /// Home tab: every transaction + transfer across all accounts for the
 /// selected month, day-grouped, matching the reference app's Transaksi
@@ -76,6 +77,15 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
       appBar: AppBar(
         title: const Text('Transactions'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Search',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const TransactionSearchScreen(),
+              ),
+            ),
+          ),
           IconButton(
             icon: Icon(_hasFilter ? Icons.filter_alt : Icons.filter_alt_outlined),
             color: _hasFilter ? Theme.of(context).colorScheme.primary : null,
@@ -142,7 +152,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
                       _CurrencySummary(entries: group),
                     const SizedBox(height: 8),
                     for (final day in days)
-                      _DaySection(day: day, entries: byDay[day]!),
+                      DaySection(day: day, entries: byDay[day]!),
                   ],
                 );
               },
@@ -479,10 +489,10 @@ class _CurrencySummary extends StatelessWidget {
   }
 }
 
-class _DaySection extends ConsumerWidget {
+class DaySection extends ConsumerWidget {
   final DateTime day;
   final List<GlobalLedgerEntry> entries;
-  const _DaySection({required this.day, required this.entries});
+  const DaySection({super.key, required this.day, required this.entries});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
