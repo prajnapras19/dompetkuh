@@ -7,8 +7,10 @@ import '../../models/category_breakdown_entry.dart';
 import '../../providers/currency_providers.dart';
 import '../../providers/report_providers.dart';
 import '../../utils/report_period.dart';
+import '../../widgets/currency_picker_screen.dart';
 import '../../widgets/icon_tile.dart';
 import '../../widgets/money_text.dart';
+import '../../widgets/picker_form_field.dart';
 import '../transactions/transactions_tab.dart';
 
 /// Per-currency reports: income/expense summary, and a category breakdown
@@ -64,15 +66,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              DropdownButtonFormField<int>(
-                initialValue: currency.id,
-                items: [
-                  for (final c in currencies)
-                    DropdownMenuItem(
-                      value: c.id,
-                      child: Text('${c.code} — ${c.name}'),
-                    ),
-                ],
+              PickerFormField<int>(
+                key: ValueKey(_currencyId),
+                value: currency.id,
+                placeholder: 'Select currency',
+                labelBuilder: (id) {
+                  final c = currencies.firstWhere((c) => c.id == id);
+                  return '${c.code} — ${c.name}';
+                },
+                onTap: (context) => Navigator.of(context).push<int>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        CurrencyPickerScreen(currencies: currencies),
+                  ),
+                ),
                 onChanged: (v) => setState(() => _currencyId = v),
               ),
               const SizedBox(height: 8),
