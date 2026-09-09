@@ -191,6 +191,86 @@ final globalLedgerInMonthProvider =
       return query.watch();
     });
 
+/// All transactions + transfer legs (any account, any time) whose note
+/// contains [query] (case-insensitive substring, matching SQLite's default
+/// ASCII-insensitive LIKE) — feeds the Transactions tab's search screen,
+/// matching the reference app's "Cari berdasarkan catatan" (search by note)
+/// box. An empty query returns no results without querying, same as the
+/// reference app showing nothing until you start typing — entries with no
+/// note can never match, which is expected: there's nothing to search.
+final globalLedgerSearchProvider =
+    StreamProvider.family<List<GlobalLedgerEntry>, String>((ref, query) {
+      final trimmed = query.trim();
+      if (trimmed.isEmpty) return Stream.value(const []);
+
+      final db = ref.watch(databaseProvider);
+      final likePattern = '%$trimmed%';
+
+      final sql =
+          '''
+        SELECT 'transaction' AS kind, t.id AS id, t.date AS date, t.type AS sign_type,
+          t.amount AS amount, c.icon AS icon, c.color AS color, c.name AS title,
+          t.note AS note, $_globalLedgerColumns
+        FROM transactions t
+        INNER JOIN categories c ON c.id = t.category_id
+        INNER JOIN accounts a ON a.id = t.account_id
+        INNER JOIN currencies cur ON cur.id = a.currency_id
+        WHERE t.note LIKE ?
+        UNION ALL
+        SELECT 'transfer_out' AS kind, tr.id AS id, tr.date AS date, 'out' AS sign_type,
+          tr.from_amount AS amount, 'transfer' AS icon, NULL AS color,
+          'Transfer to ' || dest.name AS title, tr.note AS note, $_globalLedgerColumns
+        FROM transfers tr
+        INNER JOIN accounts a ON a.id = tr.from_account_id
+        INNER JOIN accounts dest ON dest.id = tr.to_account_id
+        INNER JOIN currencies cur ON cur.id = a.currency_id
+        WHERE tr.note LIKE ?
+        UNION ALL
+        SELECT 'transfer_in' AS kind, tr.id AS id, tr.date AS date, 'in' AS sign_type,
+          tr.to_amount AS amount, 'transfer' AS icon, NULL AS color,
+          'Transfer from ' || src.name AS title, tr.note AS note, $_globalLedgerColumns
+        FROM transfers tr
+        INNER JOIN accounts a ON a.id = tr.to_account_id
+        INNER JOIN accounts src ON src.id = tr.from_account_id
+        INNER JOIN currencies cur ON cur.id = a.currency_id
+        WHERE tr.note LIKE ?
+        ORDER BY date DESC
+      ''';
+
+      final stmt = db.customSelect(
+        sql,
+        variables: [
+          Variable.withString(likePattern),
+          Variable.withString(likePattern),
+          Variable.withString(likePattern),
+        ],
+        readsFrom: {
+          db.transactions,
+          db.categories,
+          db.accounts,
+          db.currencies,
+          db.transfers,
+        },
+      ).map(
+        (row) => GlobalLedgerEntry(
+          entry: LedgerEntry(
+            kind: _parseKind(row.read<String>('kind')),
+            id: row.read<int>('id'),
+            date: row.read<DateTime>('date'),
+            signType: row.read<String>('sign_type'),
+            amount: row.read<int>('amount'),
+            iconKey: row.readNullable<String>('icon'),
+            iconColor: row.readNullable<int>('color'),
+            title: row.read<String>('title'),
+            note: row.readNullable<String>('note'),
+          ),
+          account: _readLedgerAccount(row),
+          currency: _readLedgerCurrency(row),
+        ),
+      );
+      return stmt.watch();
+    });
+
 final transferByIdProvider = StreamProvider.family<Transfer?, int>((
   ref,
   id,
