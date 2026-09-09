@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../db/database.dart';
+import '../../models/account_summary.dart';
 import '../../providers/account_providers.dart';
 import '../../providers/budget_providers.dart';
 import '../../providers/category_providers.dart';
@@ -12,6 +13,10 @@ import '../../utils/formatters.dart';
 import '../../utils/thousands_input_formatter.dart';
 import '../../widgets/form_helpers.dart';
 import '../../widgets/icon_tile.dart';
+import '../../widgets/picker_form_field.dart';
+import '../accounts/account_picker_screen.dart';
+import '../budgets/budget_picker_screen.dart';
+import '../categories/category_picker_screen.dart';
 
 /// Add or edit an in/out transaction. [initialAccountId] preselects the
 /// account (e.g. when launched from Account Detail); [transaction] non-null
@@ -89,13 +94,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               ),
             );
           }
-          _accountId ??= accounts.first.account.id;
-          final selectedAccount = accounts.firstWhere(
-            (a) => a.account.id == _accountId,
-            orElse: () => accounts.first,
-          );
+          final selectedAccount = accounts
+              .where((a) => a.account.id == _accountId)
+              .firstOrNull;
 
-          if (_amountController.text.isEmpty && widget.transaction != null) {
+          if (_amountController.text.isEmpty &&
+              widget.transaction != null &&
+              selectedAccount != null) {
             _amountController.text = Money.formatEditable(
               widget.transaction!.amount,
               selectedAccount.currency,
@@ -125,15 +130,27 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 ),
                 const SizedBox(height: 20),
                 const FormCaption('ACCOUNT'),
-                DropdownButtonFormField<int>(
-                  initialValue: selectedAccount.account.id,
-                  items: [
-                    for (final a in accounts)
-                      DropdownMenuItem(
-                        value: a.account.id,
-                        child: Text('${a.account.name} (${a.currency.code})'),
-                      ),
-                  ],
+                PickerFormField<int>(
+                  key: ValueKey(_accountId),
+                  value: _accountId,
+                  placeholder: 'Select account',
+                  labelBuilder: (id) {
+                    final a = accounts.where((a) => a.account.id == id).first;
+                    return '${a.account.name} (${a.currency.code})';
+                  },
+                  leadingBuilder: (id) {
+                    final a = accounts.where((a) => a.account.id == id).first;
+                    return IconTile(
+                      iconKey: a.account.icon,
+                      colorValue: a.account.color,
+                      size: 32,
+                    );
+                  },
+                  onTap: (context) => Navigator.of(context).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) => const AccountPickerScreen(),
+                    ),
+                  ),
                   onChanged: (v) => setState(() {
                     _accountId = v;
                     // A budget only applies within its own currency — clear
@@ -141,6 +158,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                     // no longer in its (now re-filtered) item list.
                     _budgetId = null;
                   }),
+                  validator: (v) => v == null ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
                 const FormCaption('CATEGORY'),
@@ -148,102 +166,77 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   loading: () => const LinearProgressIndicator(),
                   error: (e, _) => Text('Error: $e'),
                   data: (categories) {
-                    if (_categoryId == null && categories.isNotEmpty) {
-                      _categoryId = categories.first.id;
-                    }
                     final valid = categories.any((c) => c.id == _categoryId);
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<int>(
-                            initialValue: valid ? _categoryId : null,
-                            items: [
-                              for (final c in categories)
-                                DropdownMenuItem(
-                                  value: c.id,
-                                  child: Text(c.name),
-                                ),
-                            ],
-                            onChanged: (v) => setState(() => _categoryId = v),
-                            validator: (v) => v == null ? 'Required' : null,
-                          ),
+                    if (!valid) _categoryId = null;
+                    return PickerFormField<int>(
+                      key: ValueKey(_categoryId),
+                      value: _categoryId,
+                      placeholder: 'Select category',
+                      labelBuilder: (id) =>
+                          categories.where((c) => c.id == id).first.name,
+                      leadingBuilder: (id) {
+                        final c = categories.where((c) => c.id == id).first;
+                        return IconTile(
+                          iconKey: c.icon,
+                          colorValue: c.color,
+                          size: 32,
+                        );
+                      },
+                      onTap: (context) => Navigator.of(context).push<int>(
+                        MaterialPageRoute(
+                          builder: (_) => CategoryPickerScreen(type: _type),
                         ),
-                        const SizedBox(width: 12),
-                        IconTile(
-                          iconKey: categories
-                              .where((c) => c.id == _categoryId)
-                              .firstOrNull
-                              ?.icon,
-                          colorValue: categories
-                              .where((c) => c.id == _categoryId)
-                              .firstOrNull
-                              ?.color,
-                        ),
-                      ],
+                      ),
+                      onChanged: (v) => setState(() => _categoryId = v),
+                      validator: (v) => v == null ? 'Required' : null,
                     );
                   },
                 ),
                 // Budgets are an expense-tracking concept (spent-vs-
-                // allocated) — the field only makes sense for Expense.
-                if (_type == CategoryType.out) ...[
+                // allocated) — the field only makes sense for Expense, and
+                // only once an account (and thus a currency) is chosen.
+                if (_type == CategoryType.out && selectedAccount != null) ...[
                   const SizedBox(height: 16),
                   const FormCaption('BUDGET (OPTIONAL)'),
-                  Consumer(
-                    builder: (context, ref, _) {
-                      final budgetsAsync = ref.watch(activeBudgetsProvider);
-                      return budgetsAsync.when(
-                        loading: () => const LinearProgressIndicator(),
-                        error: (e, _) => Text('Error: $e'),
-                        data: (allBudgets) {
-                          // Only budgets in this account's currency — a
-                          // budget's "spent" total only stays meaningful if
-                          // every tagged transaction shares its currency.
-                          final budgets = allBudgets
-                              .where(
-                                (b) =>
-                                    b.currencyId == selectedAccount.currency.id,
-                              )
-                              .toList();
-                          if (budgets.isEmpty) {
-                            return Text(
-                              'No ${selectedAccount.currency.code} budgets yet — '
-                              'add one in the Budgets tab to tag transactions.',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            );
-                          }
-                          final valid = budgets.any((b) => b.id == _budgetId);
-                          return DropdownButtonFormField<int?>(
-                            // DropdownButtonFormField owns `value` internally
-                            // after first build and won't re-read
-                            // initialValue on its own — keying on the account
-                            // forces a fresh instance (and fresh initialValue)
-                            // whenever the currency-filtered item list changes.
-                            key: ValueKey(_accountId),
-                            initialValue: valid ? _budgetId : null,
-                            items: [
-                              const DropdownMenuItem(
-                                value: null,
-                                child: Text('None'),
-                              ),
-                              for (final b in budgets)
-                                DropdownMenuItem(
-                                  value: b.id,
-                                  child: Text(b.name),
-                                ),
-                            ],
-                            onChanged: (v) => setState(() => _budgetId = v),
-                          );
-                        },
+                  PickerFormField<int>(
+                    key: ValueKey('${_accountId}_$_budgetId'),
+                    value: _budgetId ?? noneBudgetId,
+                    placeholder: 'None',
+                    labelBuilder: (id) => id == noneBudgetId
+                        ? 'None'
+                        : ref
+                              .read(activeBudgetsProvider)
+                              .value!
+                              .firstWhere((b) => b.id == id)
+                              .name,
+                    leadingBuilder: (id) {
+                      if (id == noneBudgetId) return null;
+                      final b = ref
+                          .read(activeBudgetsProvider)
+                          .value!
+                          .firstWhere((b) => b.id == id);
+                      return IconTile(
+                        iconKey: b.icon,
+                        colorValue: b.color,
+                        size: 32,
                       );
                     },
+                    onTap: (context) => Navigator.of(context).push<int>(
+                      MaterialPageRoute(
+                        builder: (_) => BudgetPickerScreen(
+                          currencyId: selectedAccount.currency.id,
+                        ),
+                      ),
+                    ),
+                    onChanged: (v) => setState(
+                      () => _budgetId = v == noneBudgetId ? null : v,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
                 FormCaption('AMOUNT'),
-                if (selectedAccount.currency.decimalPlaces > 0)
+                if (selectedAccount != null &&
+                    selectedAccount.currency.decimalPlaces > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
@@ -258,13 +251,18 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   ),
                   inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
-                    hintText: selectedAccount.currency.decimalPlaces == 0
+                    hintText: selectedAccount == null
+                        ? '0'
+                        : selectedAccount.currency.decimalPlaces == 0
                         ? '0'
                         : '0.${'0' * selectedAccount.currency.decimalPlaces}',
-                    prefixText: '${selectedAccount.currency.symbol} ',
+                    prefixText: selectedAccount == null
+                        ? null
+                        : '${selectedAccount.currency.symbol} ',
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Required';
+                    if (selectedAccount == null) return null;
                     final parsed = Money.parse(v, selectedAccount.currency);
                     if (parsed == null) return 'Invalid amount';
                     if (parsed <= 0) return 'Must be greater than zero';
@@ -310,9 +308,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton(
-                  onPressed: _saving
-                      ? null
-                      : () => _save(selectedAccount.currency),
+                  onPressed: _saving ? null : () => _save(accounts),
                   child: const Text('SAVE'),
                 ),
                 if (_isEditing) ...[
@@ -334,8 +330,12 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     );
   }
 
-  Future<void> _save(Currency currency) async {
+  Future<void> _save(List<AccountSummary> accounts) async {
     if (!_formKey.currentState!.validate()) return;
+    // The Account field's own validator guarantees _accountId is set by now.
+    final currency = accounts
+        .firstWhere((a) => a.account.id == _accountId)
+        .currency;
     final amount = Money.parse(_amountController.text, currency)!;
     setState(() => _saving = true);
     final repo = ref.read(transactionRepositoryProvider);
