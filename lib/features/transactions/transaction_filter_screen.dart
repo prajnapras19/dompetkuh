@@ -92,7 +92,12 @@ class _TransactionFilterScreenState
             onChanged: (v) => setState(() => _includeTransfers = v),
           ),
           const Divider(height: 32),
-          const FormCaption('ACCOUNT'),
+          _SectionHeader(
+            'ACCOUNT',
+            ids: accountsAsync.valueOrNull?.map((a) => a.account.id),
+            excluded: _excludedAccountIds,
+            onChanged: () => setState(() {}),
+          ),
           accountsAsync.when(
             loading: () => const LinearProgressIndicator(),
             error: (e, _) => Text('Error: $e'),
@@ -137,16 +142,33 @@ class _TransactionFilterScreenState
               error: (e, _) => Text('Error: $e'),
               data: (outCategories) => Column(
                 children: [
-                  const _SectionLabel('Income'),
+                  _SectionHeader(
+                    'Income',
+                    ids: inCategories.map((c) => c.id),
+                    excluded: _excludedCategoryIds,
+                    onChanged: () => setState(() {}),
+                    sub: true,
+                  ),
                   for (final c in inCategories) _categoryTile(c),
-                  const _SectionLabel('Expense'),
+                  _SectionHeader(
+                    'Expense',
+                    ids: outCategories.map((c) => c.id),
+                    excluded: _excludedCategoryIds,
+                    onChanged: () => setState(() {}),
+                    sub: true,
+                  ),
                   for (final c in outCategories) _categoryTile(c),
                 ],
               ),
             ),
           ),
           const Divider(height: 32),
-          const FormCaption('CURRENCY'),
+          _SectionHeader(
+            'CURRENCY',
+            ids: currenciesAsync.valueOrNull?.map((c) => c.id),
+            excluded: _excludedCurrencyIds,
+            onChanged: () => setState(() {}),
+          ),
           currenciesAsync.when(
             loading: () => const LinearProgressIndicator(),
             error: (e, _) => Text('Error: $e'),
@@ -170,7 +192,12 @@ class _TransactionFilterScreenState
             ),
           ),
           const Divider(height: 32),
-          const FormCaption('BUDGET'),
+          _SectionHeader(
+            'BUDGET',
+            ids: budgetsAsync.valueOrNull?.map((b) => b.id),
+            excluded: _excludedBudgetIds,
+            onChanged: () => setState(() {}),
+          ),
           budgetsAsync.when(
             loading: () => const LinearProgressIndicator(),
             error: (e, _) => Text('Error: $e'),
@@ -241,21 +268,74 @@ class _TransactionFilterScreenState
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
+/// A checklist's title row with "Select all" / "Deselect all" shortcuts. The
+/// filter state is exclude-based, so "Select all" clears the section's ids
+/// from [excluded] and "Deselect all" adds them all. [ids] is null while the list is still loading,
+/// which disables the shortcuts. [sub] styles it as a sub-section label
+/// (Income/Expense inside Category) rather than a section caption.
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final Iterable<int>? ids;
+  final Set<int> excluded;
+  final VoidCallback onChanged;
+  final bool sub;
+
+  const _SectionHeader(
+    this.title, {
+    required this.ids,
+    required this.excluded,
+    required this.onChanged,
+    this.sub = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          text.toUpperCase(),
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
-        ),
+    final ids = this.ids?.toList();
+    return Padding(
+      padding: EdgeInsets.only(top: sub ? 4 : 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: sub
+                ? Text(
+                    title.toUpperCase(),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  )
+                : FormCaption(title),
+          ),
+          _action(
+            'Select all',
+            ids == null
+                ? null
+                : () {
+                    excluded.removeAll(ids);
+                    onChanged();
+                  },
+          ),
+          _action(
+            'Deselect all',
+            ids == null
+                ? null
+                : () {
+                    excluded.addAll(ids);
+                    onChanged();
+                  },
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _action(String label, VoidCallback? onPressed) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 12)),
     );
   }
 }
