@@ -69,10 +69,24 @@ final categoryBreakdownProvider =
       );
     });
 
-/// The synthetic "Transfer" slice of the same breakdown: transfer legs
-/// count as income (money arriving in this currency) or expense (money
-/// leaving it) but have no category, so they're summed separately and
-/// merged into the list by the Reports screen. Null when there are none.
+/// SQL for how much one transfer leg contributes to a currency's report
+/// totals, given `tr` (the transfer), `a` (the leg's own account) and `o`
+/// (the other account). Cross-currency legs count in full: money really
+/// entered/left this currency. A same-currency transfer just moves money
+/// between your own accounts, so it counts only for what it lost or gained
+/// along the way (sent minus received = a fee), and nothing when equal.
+String _transferLegAmountSql({required bool incoming}) {
+  final own = incoming ? 'tr.to_amount' : 'tr.from_amount';
+  final other = incoming ? 'tr.from_amount' : 'tr.to_amount';
+  return 'CASE WHEN o.currency_id = a.currency_id '
+      'THEN MAX($own - $other, 0) ELSE $own END';
+}
+
+/// The synthetic "Transfer" slice of the same breakdown: cross-currency
+/// transfer legs (and same-currency transfer fees — see
+/// [_transferLegAmountSql]) count as income/expense but have no category,
+/// so they're summed separately and merged into the list by the Reports
+/// screen. Null when there are none.
 final transferBreakdownProvider =
     StreamProvider.family<CategoryBreakdownEntry?, CategoryBreakdownArgs>((
       ref,
@@ -80,8 +94,9 @@ final transferBreakdownProvider =
     ) {
       final db = ref.watch(databaseProvider);
       final isIn = args.type == CategoryType.in_;
-      final amountCol = isIn ? 'to_amount' : 'from_amount';
       final accountCol = isIn ? 'to_account_id' : 'from_account_id';
+      final otherCol = isIn ? 'from_account_id' : 'to_account_id';
+      final leg = _transferLegAmountSql(incoming: isIn);
 
       final conditions = StringBuffer('WHERE a.currency_id = ?');
       final variables = <Variable>[Variable.withInt(args.currencyId)];
@@ -97,9 +112,11 @@ final transferBreakdownProvider =
       return db
           .customSelect(
             '''
-            SELECT COALESCE(SUM(tr.$amountCol), 0) AS total, COUNT(*) AS n
+            SELECT COALESCE(SUM($leg), 0) AS total,
+              COALESCE(SUM(CASE WHEN $leg > 0 THEN 1 ELSE 0 END), 0) AS n
             FROM transfers tr
             INNER JOIN accounts a ON a.id = tr.$accountCol
+            INNER JOIN accounts o ON o.id = tr.$otherCol
             $conditions
             ''',
             variables: variables,
@@ -125,8 +142,8 @@ typedef CurrencyTotalsArgs = ({int currencyId, DateTime? start, DateTime? end});
 
 /// Income vs expense totals for one currency's accounts within an optional
 /// date range — the compact summary line above the Reports donut chart.
-/// Transfer legs count (money arriving in / leaving this currency), matching
-/// the Transactions tab's summary.
+/// Transfers count the same way as in the breakdown (see
+/// [_transferLegAmountSql]).
 final currencyTotalsProvider =
     StreamProvider.family<CurrencyTotals, CurrencyTotalsArgs>((ref, args) {
       final db = ref.watch(databaseProvider);
@@ -148,6 +165,8 @@ final currencyTotalsProvider =
         return conditions.toString();
       }
 
+      final legIn = _transferLegAmountSql(incoming: true);
+      final legOut = _transferLegAmountSql(incoming: false);
       final txIn = where('t.date');
       final transferIn = where('tr.date');
       final txOut = where('t.date');
@@ -160,14 +179,16 @@ final currencyTotalsProvider =
           COALESCE((SELECT SUM(t.amount) FROM transactions t
             INNER JOIN accounts a ON a.id = t.account_id
             $txIn AND t.type = 'in'), 0)
-          + COALESCE((SELECT SUM(tr.to_amount) FROM transfers tr
+          + COALESCE((SELECT SUM($legIn) FROM transfers tr
             INNER JOIN accounts a ON a.id = tr.to_account_id
+            INNER JOIN accounts o ON o.id = tr.from_account_id
             $transferIn), 0) AS income,
           COALESCE((SELECT SUM(t.amount) FROM transactions t
             INNER JOIN accounts a ON a.id = t.account_id
             $txOut AND t.type = 'out'), 0)
-          + COALESCE((SELECT SUM(tr.from_amount) FROM transfers tr
+          + COALESCE((SELECT SUM($legOut) FROM transfers tr
             INNER JOIN accounts a ON a.id = tr.from_account_id
+            INNER JOIN accounts o ON o.id = tr.to_account_id
             $transferOut), 0) AS expense
         ''',
             variables: variables,

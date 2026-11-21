@@ -270,11 +270,16 @@ lib/
       currencies, and a same-currency one adds equally to both sides
       (Total unaffected, except by any fee — sent minus received). They
       show as line items everywhere, including the Reports drill-down's
-      account/category filters where applicable. Reports follow the same
-      rule: the Income/Expense/Net line counts transfer legs, and the
-      breakdown gets a synthetic "Transfer" slice (no category, so it's
-      not tappable — no drill-down for it) so the donut adds up to those
-      totals.
+      account/category filters where applicable. **Reports are stricter**
+      (repo owner's call — same-currency transfers are just noise there):
+      cross-currency transfer legs count in full, but a same-currency
+      transfer counts only for sent-minus-received (i.e. its fee, as
+      expense; zero if equal). That goes into the Income/Expense/Net line
+      and into a synthetic "Transfer" slice in the breakdown (no category,
+      so it's not tappable — no drill-down) so the donut adds up to those
+      totals. See `_transferLegAmountSql` in `report_providers.dart`. So
+      Reports' gross Income/Expense are lower than the Transactions tab's
+      in months with same-currency transfers; Net is the same.
 - [x] **Phase 3 — Reports**: currency selector + `ReportPeriod` selector
       (see dedicated section above) + Income/Expense toggle + `fl_chart`
       donut/breakdown, with drill-down into a filtered Transactions tab.
