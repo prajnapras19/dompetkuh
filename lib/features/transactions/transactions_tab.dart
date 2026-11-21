@@ -145,7 +145,13 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
 
                 return ListView(
                   children: [
-                    for (final group in byCurrency.values)
+                    // A currency that only shows up via a transfer leg has no
+                    // income/expense to summarize (transfers are excluded
+                    // from these totals), so skip its all-zero block.
+                    for (final group in byCurrency.values.where(
+                      (g) =>
+                          g.any((e) => e.entry.kind == LedgerKind.transaction),
+                    ))
                       _CurrencySummary(entries: group),
                     const SizedBox(height: 8),
                     for (final day in days)
