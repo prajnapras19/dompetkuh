@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../db/database.dart';
 import '../models/category_breakdown_entry.dart';
 import 'database_provider.dart';
 
@@ -53,18 +54,68 @@ final categoryBreakdownProvider =
             ..groupBy([db.transactions.categoryId]);
 
       return query.watch().map(
-        (rows) => rows
-            .map(
-              (row) => CategoryBreakdownEntry(
-                category: row.readTable(db.categories),
-                totalAmount: row.read(amountSum) ?? 0,
-                transactionCount: row.read(txnCount) ?? 0,
-              ),
-            )
-            .where((e) => e.totalAmount > 0)
-            .toList()
-          ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount)),
+        (rows) =>
+            rows
+                .map(
+                  (row) => CategoryBreakdownEntry(
+                    category: row.readTable(db.categories),
+                    totalAmount: row.read(amountSum) ?? 0,
+                    transactionCount: row.read(txnCount) ?? 0,
+                  ),
+                )
+                .where((e) => e.totalAmount > 0)
+                .toList()
+              ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount)),
       );
+    });
+
+/// The synthetic "Transfer" slice of the same breakdown: transfer legs
+/// count as income (money arriving in this currency) or expense (money
+/// leaving it) but have no category, so they're summed separately and
+/// merged into the list by the Reports screen. Null when there are none.
+final transferBreakdownProvider =
+    StreamProvider.family<CategoryBreakdownEntry?, CategoryBreakdownArgs>((
+      ref,
+      args,
+    ) {
+      final db = ref.watch(databaseProvider);
+      final isIn = args.type == CategoryType.in_;
+      final amountCol = isIn ? 'to_amount' : 'from_amount';
+      final accountCol = isIn ? 'to_account_id' : 'from_account_id';
+
+      final conditions = StringBuffer('WHERE a.currency_id = ?');
+      final variables = <Variable>[Variable.withInt(args.currencyId)];
+      if (args.start != null) {
+        conditions.write(' AND tr.date >= ?');
+        variables.add(Variable.withDateTime(args.start!));
+      }
+      if (args.end != null) {
+        conditions.write(' AND tr.date < ?');
+        variables.add(Variable.withDateTime(args.end!));
+      }
+
+      return db
+          .customSelect(
+            '''
+            SELECT COALESCE(SUM(tr.$amountCol), 0) AS total, COUNT(*) AS n
+            FROM transfers tr
+            INNER JOIN accounts a ON a.id = tr.$accountCol
+            $conditions
+            ''',
+            variables: variables,
+            readsFrom: {db.transfers, db.accounts},
+          )
+          .map((row) {
+            final total = row.read<int>('total');
+            return total > 0
+                ? CategoryBreakdownEntry(
+                    category: null,
+                    totalAmount: total,
+                    transactionCount: row.read<int>('n'),
+                  )
+                : null;
+          })
+          .watchSingle();
     });
 
 typedef CurrencyTotals = ({int income, int expense});
@@ -74,37 +125,59 @@ typedef CurrencyTotalsArgs = ({int currencyId, DateTime? start, DateTime? end});
 
 /// Income vs expense totals for one currency's accounts within an optional
 /// date range — the compact summary line above the Reports donut chart.
+/// Transfer legs count (money arriving in / leaving this currency), matching
+/// the Transactions tab's summary.
 final currencyTotalsProvider =
     StreamProvider.family<CurrencyTotals, CurrencyTotalsArgs>((ref, args) {
       final db = ref.watch(databaseProvider);
 
-      final conditions = StringBuffer('WHERE a.currency_id = ?');
-      final variables = <Variable>[Variable.withInt(args.currencyId)];
-      if (args.start != null) {
-        conditions.write(' AND t.date >= ?');
-        variables.add(Variable.withDateTime(args.start!));
-      }
-      if (args.end != null) {
-        conditions.write(' AND t.date < ?');
-        variables.add(Variable.withDateTime(args.end!));
+      // Variables are positional, so each WHERE must be built in the same
+      // order its subquery appears in the SQL below.
+      final variables = <Variable>[];
+      String where(String dateColumn) {
+        final conditions = StringBuffer('WHERE a.currency_id = ?');
+        variables.add(Variable.withInt(args.currencyId));
+        if (args.start != null) {
+          conditions.write(' AND $dateColumn >= ?');
+          variables.add(Variable.withDateTime(args.start!));
+        }
+        if (args.end != null) {
+          conditions.write(' AND $dateColumn < ?');
+          variables.add(Variable.withDateTime(args.end!));
+        }
+        return conditions.toString();
       }
 
-      final query = db.customSelect(
-        '''
+      final txIn = where('t.date');
+      final transferIn = where('tr.date');
+      final txOut = where('t.date');
+      final transferOut = where('tr.date');
+
+      final query = db
+          .customSelect(
+            '''
         SELECT
-          COALESCE(SUM(CASE WHEN t.type = 'in' THEN t.amount ELSE 0 END), 0) AS income,
-          COALESCE(SUM(CASE WHEN t.type = 'out' THEN t.amount ELSE 0 END), 0) AS expense
-        FROM transactions t
-        INNER JOIN accounts a ON a.id = t.account_id
-        $conditions
+          COALESCE((SELECT SUM(t.amount) FROM transactions t
+            INNER JOIN accounts a ON a.id = t.account_id
+            $txIn AND t.type = 'in'), 0)
+          + COALESCE((SELECT SUM(tr.to_amount) FROM transfers tr
+            INNER JOIN accounts a ON a.id = tr.to_account_id
+            $transferIn), 0) AS income,
+          COALESCE((SELECT SUM(t.amount) FROM transactions t
+            INNER JOIN accounts a ON a.id = t.account_id
+            $txOut AND t.type = 'out'), 0)
+          + COALESCE((SELECT SUM(tr.from_amount) FROM transfers tr
+            INNER JOIN accounts a ON a.id = tr.from_account_id
+            $transferOut), 0) AS expense
         ''',
-        variables: variables,
-        readsFrom: {db.transactions, db.accounts},
-      ).map(
-        (row) => (
-          income: row.read<int>('income'),
-          expense: row.read<int>('expense'),
-        ),
-      );
+            variables: variables,
+            readsFrom: {db.transactions, db.transfers, db.accounts},
+          )
+          .map(
+            (row) => (
+              income: row.read<int>('income'),
+              expense: row.read<int>('expense'),
+            ),
+          );
       return query.watchSingle();
     });

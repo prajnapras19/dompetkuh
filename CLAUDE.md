@@ -270,8 +270,11 @@ lib/
       currencies, and a same-currency one adds equally to both sides
       (Total unaffected, except by any fee — sent minus received). They
       show as line items everywhere, including the Reports drill-down's
-      account/category filters where applicable. Reports' category donut
-      is unchanged (transfers have no category).
+      account/category filters where applicable. Reports follow the same
+      rule: the Income/Expense/Net line counts transfer legs, and the
+      breakdown gets a synthetic "Transfer" slice (no category, so it's
+      not tappable — no drill-down for it) so the donut adds up to those
+      totals.
 - [x] **Phase 3 — Reports**: currency selector + `ReportPeriod` selector
       (see dedicated section above) + Income/Expense toggle + `fl_chart`
       donut/breakdown, with drill-down into a filtered Transactions tab.

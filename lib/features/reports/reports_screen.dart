@@ -265,19 +265,21 @@ class _Breakdown extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final (start, end) = period.range;
-    final breakdownAsync = ref.watch(
-      categoryBreakdownProvider((
-        currencyId: currencyId,
-        start: start,
-        end: end,
-        type: type,
-      )),
-    );
+    final args = (currencyId: currencyId, start: start, end: end, type: type);
+    final breakdownAsync = ref.watch(categoryBreakdownProvider(args));
+    final transferAsync = ref.watch(transferBreakdownProvider(args));
 
-    return breakdownAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
-      data: (entries) {
+    final error = breakdownAsync.error ?? transferAsync.error;
+    if (error != null) return Center(child: Text('Error: $error'));
+    if (!breakdownAsync.hasValue || !transferAsync.hasValue) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Builder(
+      builder: (context) {
+        final transfer = transferAsync.requireValue;
+        final entries = [...breakdownAsync.requireValue, ?transfer]
+          ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
         if (entries.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
@@ -348,8 +350,8 @@ class _CategoryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: IconTile(iconKey: entry.category.icon, colorValue: color),
-      title: Text(entry.category.name),
+      leading: IconTile(iconKey: entry.iconKey, colorValue: color),
+      title: Text(entry.name),
       subtitle: Text('${percentage.toStringAsFixed(1)}%'),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -362,21 +364,24 @@ class _CategoryRow extends StatelessWidget {
           ),
         ],
       ),
-      onTap: () {
-        // Drill down into the filtered transaction list. The Transactions
-        // tab only pages by month, so for non-monthly periods this opens
-        // on the month containing the period's reference date — closest
-        // equivalent view when e.g. a Yearly or All-time period was active.
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TransactionsTab(
-              initialMonth: period.reference,
-              initialCategoryId: entry.category.id,
-              initialCurrencyId: currency.id,
-            ),
-          ),
-        );
-      },
+      // The synthetic Transfer entry has no category to drill into.
+      onTap: entry.isTransfer
+          ? null
+          : () {
+              // Drill down into the filtered transaction list. The Transactions
+              // tab only pages by month, so for non-monthly periods this opens
+              // on the month containing the period's reference date — closest
+              // equivalent view when e.g. a Yearly or All-time period was active.
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TransactionsTab(
+                    initialMonth: period.reference,
+                    initialCategoryId: entry.category!.id,
+                    initialCurrencyId: currency.id,
+                  ),
+                ),
+              );
+            },
     );
   }
 }
