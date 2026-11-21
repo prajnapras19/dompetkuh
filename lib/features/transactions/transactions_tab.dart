@@ -145,13 +145,7 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
 
                 return ListView(
                   children: [
-                    // A currency that only shows up via a transfer leg has no
-                    // income/expense to summarize (transfers are excluded
-                    // from these totals), so skip its all-zero block.
-                    for (final group in byCurrency.values.where(
-                      (g) =>
-                          g.any((e) => e.entry.kind == LedgerKind.transaction),
-                    ))
+                    for (final group in byCurrency.values)
                       _CurrencySummary(entries: group),
                     const SizedBox(height: 8),
                     for (final day in days)
@@ -208,9 +202,10 @@ class _TransactionsTabState extends ConsumerState<TransactionsTab> {
   }
 }
 
-/// Income only counts plain 'in' transactions; transfers move money between
-/// your own accounts so they're excluded from income/expense (they still
-/// show up as line items below, just not summed into these totals).
+/// Income/expense sum every 'in'/'out' entry, transfer legs included: each
+/// leg is money entering/leaving that account's currency, which is what makes
+/// a cross-currency transfer show up under both currencies. Same-currency
+/// transfers add equally to both sides, so Total is unaffected.
 class _CurrencySummary extends StatelessWidget {
   final List<GlobalLedgerEntry> entries;
   const _CurrencySummary({required this.entries});
@@ -219,18 +214,10 @@ class _CurrencySummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final currency = entries.first.currency;
     final income = entries
-        .where(
-          (e) =>
-              e.entry.kind == LedgerKind.transaction &&
-              e.entry.signType == 'in',
-        )
+        .where((e) => e.entry.signType == 'in')
         .fold<int>(0, (sum, e) => sum + e.entry.amount);
     final expense = entries
-        .where(
-          (e) =>
-              e.entry.kind == LedgerKind.transaction &&
-              e.entry.signType == 'out',
-        )
+        .where((e) => e.entry.signType == 'out')
         .fold<int>(0, (sum, e) => sum + e.entry.amount);
 
     return Padding(

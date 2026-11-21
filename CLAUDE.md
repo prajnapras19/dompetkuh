@@ -263,10 +263,15 @@ lib/
       before the physical device was disconnected.
 - [x] **Phase 2 — Transfers**: `Transfers` table wired up. Transfer entry
       point is the FAB speed-dial now (see Navigation shell above), not a
-      per-screen icon. Transfers are excluded from the Transactions tab's
-      income/expense summary (they move money between your own accounts)
-      but do show as line items everywhere, including the Reports drill-
-      down's account/category filters where applicable.
+      per-screen icon. **Transfers count as income/expense in the
+      Transactions tab's per-currency summary** (repo owner's call, after
+      first excluding them): each leg is money entering/leaving that
+      account's currency, so a cross-currency transfer shows under both
+      currencies, and a same-currency one adds equally to both sides
+      (Total unaffected, except by any fee — sent minus received). They
+      show as line items everywhere, including the Reports drill-down's
+      account/category filters where applicable. Reports' category donut
+      is unchanged (transfers have no category).
 - [x] **Phase 3 — Reports**: currency selector + `ReportPeriod` selector
       (see dedicated section above) + Income/Expense toggle + `fl_chart`
       donut/breakdown, with drill-down into a filtered Transactions tab.
